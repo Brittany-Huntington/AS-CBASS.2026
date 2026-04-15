@@ -6,7 +6,7 @@ library(readxl)
 library(rstudioapi)
 library(RColorBrewer)
 library(CBASSED50) #Voolstra R package
-
+library(lme4)
 
 
 rm(list = ls())
@@ -35,6 +35,8 @@ temp_sets <- list(
   Max_common = c(29,35,36,37,38,39),
   All = sort(unique(dat$Temperature))
 )
+tmin <- min(temp_sets$Classic, na.rm = TRUE)
+tmax <- max(temp_sets$Classic, na.rm = TRUE)
 
 #create function to process a ramp dataset
 process_cbass_dataset <- function(dat, temps, dataset_name){
@@ -106,24 +108,31 @@ write.csv(eds_all,"Data/EDsdf_all_ramps.csv", row.names = FALSE)
 
 #explore for outliers (getting those odd values under the "classic" temp ramp)
 View(eds_all)
-
-eds_all2 <- eds_all%>% filter(Species %in% c("AGLO", "ICRA"))%>% 
-  filter(ED50 >= min(temp_sets$Classic) & ED50 <= max(temp_sets$Classic)) %>% #filter out the oddballs that are showing up in the classic ramps
-  droplevels()#limit to our two primary taxa with the largest N
-
-#summarize data at site level to avoid psuedoreplication
-site_means2 <- eds_all2 %>%
-  group_by(Site, Species, Dataset) %>%
-  summarise(ED50 = mean(ED50, na.rm = TRUE), .groups = "drop")
+eds_all <- eds_all%>% mutate(across(where(is.character), as.factor))
+#To ensure results were not influenced by unequal species representation, analyses were repeated for the two most commonly represented species (AGLO and ICRA).
+eds_two <- eds_all %>% filter(Species %in% c("AGLO", "ICRA"), ED50 >= tmin, ED50 <=tmax)
 
 #linear model
-lm_site2 <- lm(ED50 ~ Dataset + Species, data = site_means2)
-anova(lm_site2)
+mod_full <- lmer(ED50 ~ Dataset + Species + (1|Site), data = eds_all)
+
+#Remove  clear model outliers (e.g. standardized residuals > 3); n = 4 from the classic model
+eds_all$resid <- resid(mod_full)
+eds_all$z <- scale(eds_all$resid)
+outliers <- eds_all %>% filter(abs(z) > 3)
+eds_clean <- eds_all %>% filter(abs(z) <= 3)
+
+#re-run linear model with outliers removed
+mod_clean <- lmer(ED50 ~ Dataset + Species + (1|Site), data = eds_clean)
+mod_two <- lmer(ED50 ~ Dataset + Species + (1|Site), data = eds_two)
+
+anova(mod_full)
+anova(mod_clean)
+anova(mod_two)
 
 
-g1 <- ggplot(site_means2, aes(x = Dataset, y = ED50, fill = Species)) +
+g1 <- ggplot(eds_clean, aes(x = Dataset, y = ED50, fill = Species)) +
   geom_boxplot(outlier.shape = NA, alpha = 0.35) +
-  geom_jitter(aes(color = Species),  width = 0.15, alpha = 0.8, size = 2, show.legend = FALSE) +
+  geom_jitter(aes(color = Species),  width = 0.15, alpha = 0.35, size = 1.5, show.legend = FALSE) +
   facet_wrap(~ Species, scales = "fixed") +
   theme_classic(base_size = 14) +
   labs(
@@ -146,44 +155,20 @@ ggsave("C:/github/CBASS/AS-CBASS.2026/Plots/ED50 Comparisons Across Temp Ramps.j
 
 shared_sites <- c(3,4,5,9,10)
 
-dat_shared <- eds_all2 %>%
+dat_shared <- eds_two%>%
   filter(Site %in% shared_sites,
          Dataset %in% c("Classic","Refined"),
          Species %in% c("AGLO","ICRA"))
 
-site_means_shared <- dat_shared %>%
-  group_by(Site, Species, Dataset) %>%
-  summarise(
-    ED50_mean = mean(ED50, na.rm = TRUE),
-    ED50_sd   = sd(ED50, na.rm = TRUE),
-    .groups = "drop"
-  )
 
 #paired test using site as blocking factor to test is refined ramp changes ED values
-lm_ramp <- lm(ED50_mean ~ Dataset * Species + Site, data = site_means_shared)
-anova(lm_ramp) #dataset still not significant
+mod_paired <- lmer(ED50 ~ Dataset * Species + (1 | Site), data = dat_shared)
+anova(mod_paired) #dataset still not significant
 
-#test if refined ramp reduces variance
-lm_variance <- lm(ED50_sd ~ Dataset * Species, data = site_means_shared)
-anova(lm_variance)
-
-#convert to a paired difference for even cleaner analysis
-#Is ramp bias different from zero, accounting for expected differences between species?
-ramp_diff <- site_means_shared %>%
-  select(-ED50_sd)%>%
-  pivot_wider(names_from = Dataset, values_from = ED50_mean) %>%
-  mutate(delta_ED50 = Refined - Classic)
-
-lm_delta <- lm(delta_ED50 ~ Species, data = ramp_diff)
-summary(lm_delta)
-
-sd(ramp_diff$delta_ED50)
-sd(site_means_shared$ED50) 
-#ramp bias is small relative to site variation,
 
 
 #plot
-g2 <- ggplot(site_means_shared, aes(x = Dataset, y = ED50, fill = Species)) +
+g2 <- ggplot(dat_shared, aes(x = Dataset, y = ED50, fill = Species)) +
   geom_boxplot(outlier.shape = NA, alpha = 0.35) +
   geom_jitter(aes(color = Species),
               width = 0.15,
