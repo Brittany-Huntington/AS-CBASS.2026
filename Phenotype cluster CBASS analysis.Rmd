@@ -103,7 +103,7 @@ summary(m1)
 
 
 ```{r}
-# run model for each individual spp. Played with putting in all predictors and cluster, but didnt make much difference.
+# run model for each individual spp. 
 m_icra<-lmer(ED50 ~ Cluster_5 + Colony_depth_ft + Partial_mortality + Size_cm+ (1|Site), data=ICRA)
 m_icra1<-lmer(ED50 ~ Cluster_5 + (1|Site), data=ICRA)
 
@@ -133,7 +133,7 @@ emmeans(m_aglo1, pairwise ~ Cluster_5)
 #emmeans(m_ahya, pairwise ~ Cluster_5)
 ```
 ```{r}
-#run t test for each spp indivudually
+#run t test for each spp indivudually (this doesnt take into account site as random factor)
   
 #test normality with Shapiro test
   ICRA %>%
@@ -172,123 +172,4 @@ emmeans(m_aglo1, pairwise ~ Cluster_5)
   
 ```
 
-```{r}
-#here is analysis for analyzing cluster across spp. probably can delete.
-#change ED level but since all EDs/DW are collinear, feel ok about just analyzing ED50 here.
-ED <- df_clean$ED50
-m4 <- lm(ED ~ Species + Cluster_4, data=df_clean)
-m5 <- lm(ED ~ Species + Cluster_5, data=df_clean)
-m6 <- lm(ED ~ Species + Cluster_6, data=df_clean)
-m7 <- lm(ED ~ Species + Cluster_7, data=df_clean)
-m8 <- lm(ED ~ Species + Cluster_8,  data=df_clean)
-
-AIC(m4,m5,m6, m7, m8)
-#model 8 is lowest for ED50, model 4 is lowest for ED5, ED95, and DW
-
-
-anova(m4)
-anova(m8)
-
-#lmer
-#Adding in site
-ED <- df_clean$ED50
-m4 <- lmer(ED ~ Species + Cluster_4 + (1|Site), data=df_clean)
-m5 <- lmer(ED ~ Species + Cluster_5 + (1|Site), data=df_clean)
-m6 <- lmer(ED ~ Species + Cluster_6 + (1|Site), data=df_clean)
-m7 <- lmer(ED ~ Species + Cluster_7 + (1|Site), data=df_clean)
-m8 <- lmer(ED ~ Species + Cluster_8 + (1|Site), data=df_clean)
-AIC(m4,m5,m6, m7, m8)
-#model 4 is lowest for ED50, model 5 is lowest for ED5, ED95, and DW
-
-#lmer
-#Adding interaction of spp and cluster
-ED <- df_clean$ED50
-m4i <- lmer(ED ~ Species * Cluster_4 + (1|Site), data=df_clean)
-m5i <- lmer(ED ~ Species * Cluster_5 + (1|Site), data=df_clean)
-m6i <- lmer(ED ~ Species * Cluster_6 + (1|Site), data=df_clean)
-m7i <- lmer(ED ~ Species * Cluster_7 + (1|Site), data=df_clean)
-m8i <- lmer(ED ~ Species * Cluster_8 + (1|Site), data=df_clean)
-AIC(m4i,m5i,m6i, m7i, m8i)
-#model 4 is lowest, and this model is lower than w/o interaction
-
-anova(m4i)
-
-m <- lmer(ED50 ~ Species * Cluster_4 + (1|Site), data=df_clean)
-# emmeans(m, pairwise ~ Cluster_4)
-# emmeans(m, pairwise ~ Species)
- emmeans(m, pairwise ~ Species | Cluster_4) #this is across spp, doesnt make sense to me to use this. I think we just want to see if within species, clusters are differenct from eachother.
-emm<- emmeans(m, pairwise ~ Cluster_4 | Species) #within spp comparisons of clusters: sig differences within species, phenotype cluster predicts ed50!
-
-#emm <- emmeans(m, ~ Cluster_4 | Species)
-
-plot(emm)
-```
-
-
-```{r}
-#species-specific cluster within soecies (make nested factor) basically using cluster as within-species explanatory trait, not across.
-df_clean$SpCluster <- interaction(df_clean$Species, df_clean$Cluster_4)
-
-lmer(
- ED50 ~ Species + SpCluster +
-   Colony_depth_ft + Partial_mortality + Size_cm +
-   (1|Site),
- data=df_clean
-)
-
-#main spp model
-m1<-lmer(ED50 ~ Species + Colony_depth_ft + Partial_mortality + Size_cm + (1|Site),
- data=df_clean
-)
-
-m2<-lmer(ED50 ~ Species * (Colony_depth_ft + Partial_mortality + Size_cm) + (1|Site),
- data=df_clean
-)
-
-anova(m1, m2)
-#m1 has lower AIC
-
-#then run for each individual spp
-m_icra<-lmer(ED50 ~ Cluster_5 + Colony_depth_ft + Partial_mortality + Size_cm + (1|Site),
- data=ICRA
-)
-
-m_aglo<-lmer(ED50 ~ Cluster_5 + Colony_depth_ft + Partial_mortality + Size_cm + (1|Site),
- data=AGLO
-)
-
-m_aabr<-lmer(ED50 ~ Cluster_5 + Colony_depth_ft + Partial_mortality + Size_cm + (1|Site),
- data=AABR
-)
-
-#ahya only one group
- m_ahya<-lmer(ED50 ~ Cluster_5 + Colony_depth_ft + Partial_mortality + Size_cm + (1|Site),
-  data=AHYA
- )
-
-emmeans(m_aabr, pairwise ~ Cluster_5)
-emmeans(m_icra, pairwise ~ Cluster_5)
-emmeans(m_aglo, pairwise ~ Cluster_5)
-emmeans(m_ahya, pairwise ~ Cluster_5)
-```
-
-
-```{r}
-#add in partial mortality, colony size and depth to model. this is still assuming can compare across spp!
-
-m9<-lmer(
-    ED50 ~ Species +  Cluster_4 + Colony_depth_ft + Partial_mortality + Size_cm + (1 | Site), data = df_clean)
-
-m10<- lmer(
-    ED50 ~ Species * ( Cluster_4 + Colony_depth_ft + Partial_mortality + Size_cm) + (1 | Site), data = df_clean)
-
-anova(m9, m10) 
-#M9 has lower AIC
-summary(m9)
-emmeans(m9, ~ Species)
-emmeans(m9, pairwise ~ Species)
-emmeans(m2, ~ Cluster_4)
-emmeans(m2, pairwise ~ Cluster_4)
-emmeans(m9, pairwise ~ Cluster_4 | Species)
-```
 
