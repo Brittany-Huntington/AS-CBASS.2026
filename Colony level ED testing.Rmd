@@ -1,0 +1,387 @@
+---
+title: "Colony level analyses"
+output: html_document
+date: "2026-03-16"
+---
+
+```{r}
+library(tidyverse)
+library(here)
+library(dplyr)
+library(readxl)
+library(lmerTest)
+library(emmeans)
+library(broom)
+library(lme4)
+library(car)
+library(corrplot)
+library(Hmisc )
+rm(list = ls())
+
+#calculating ED50 for all datasets and combining with metadata
+#read in metadata
+file_path <-here("Data")
+  cbass_metadata<-read_xlsx("Data/ESA_CBASS_metadata.xlsx")
+
+EDsdf<-read.csv("Data/EDsdf-all.csv")
+#read in all site files
+files <- list.files(here("Data"), pattern = "PAM\\.csv$", full.names = TRUE)
+
+
+
+#read in MAPP cluster df and fix sample ID names/cols
+bloop_cluster<- read.csv("Data/expt_data_clustered.csv")
+bloop_cluster <- bloop_cluster %>%
+  mutate(
+    clean = SampleID_clean %>%
+      tolower() %>%
+      sub("^t", "", .),   # remove leading "t"
+    
+    site = sub("_.*", "", clean),
+    species = sub(".*_([a-z]+)[0-9]+$", "\\1", clean),
+    genotype = sub(".*_([a-z]+)([0-9]+)$", "\\2", clean),
+    
+    GroupingProperty = paste(site, toupper(species), genotype, sep = "_")
+  ) %>%
+  select(-clean)
+  
+
+#combine cbass data
+combined_df <- files %>%
+  map_dfr(~ read_csv(.x) %>% mutate(source_file = basename(.x)))
+
+#join metadata with raw pam value data to get grouping property into metadata
+combined_df <- combined_df %>%
+  left_join(cbass_metadata, by = c("Bag_number", "Species", "Site"))
+
+combined_df <- combined_df %>%
+  mutate(GroupingProperty = paste(Site, Species, Genotype, sep = "_"))
+
+
+#remove duplicates 
+metadata_small <- combined_df %>%
+  mutate(Grouping_property = paste(Site, Species, Genotype, sep = "_")) %>%
+  distinct(Grouping_property, .keep_all = TRUE)
+
+EDsdf_clean <- EDsdf %>%
+  select(-Species, -Site)  # drop duplicates if present
+
+#combine 
+cbass_dataset <- metadata_small %>%
+  left_join(EDsdf_clean, by = "GroupingProperty") %>%
+
+  left_join(bloop_cluster, by = "GroupingProperty")
+
+
+cbass_dataset$DW <- cbass_dataset$ED95 - cbass_dataset$ED5
+#clean
+cbass_dataset <-  cbass_dataset %>% 
+  select(
+    GroupingProperty, 
+    Species,
+    Site,
+    Tank_color, 
+    Size_cm, 
+    Partial_mortality,
+    Colony_depth_ft, 
+    ED50, 
+    ED5, 
+    ED95, 
+    DW,
+    Cluster_4,
+    Cluster_5,
+    Cluster_6,
+    Cluster_7,
+    Cluster_8)
+
+write.csv(cbass_dataset, file = "Data/full_cbass_dataset.csv")
+
+#long format
+ED_long <- cbass_dataset %>%
+  pivot_longer(
+    cols = c(ED5, ED50, ED95, DW),
+    names_to = "ED_level",
+    values_to = "ED_value"
+  ) %>%
+  mutate(Species = factor(Species, levels = c("AABR", "AHYA", "AGLO", "ICRA")))
+
+#subset each value
+ED50 <- ED_long %>% filter(ED_level == "ED50")
+ED5<- ED_long %>% filter(ED_level == "ED5")
+ED95<- ED_long %>% filter(ED_level == "ED95")
+DW<- ED_long %>% filter(ED_level == "DW")
+
+#subset spp
+ICRA<- ED_long %>% filter(Species == "ICRA")
+  AGLO<- ED_long %>% filter(Species == "AGLO")
+  AABR<- ED_long %>% filter(Species == "AABR")
+  AHYA<- ED_long %>% filter(Species == "AHYA")
+```
+
+
+```{r}
+#visualize patterns across all taxa
+
+#just change DW, ED95, etc here and plot
+plot_df <- DW %>%
+  pivot_longer(cols = c(Colony_depth_ft, Partial_mortality, Size_cm),
+               names_to = "Predictor",
+               values_to = "Value")
+
+ggplot(plot_df,
+       aes(x = Value, y = ED_value, color = Species)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE) +
+    facet_grid(ED_level ~ Predictor, scales = "free") 
+
+#by spp
+ AGLO %>%
+     ggplot(aes(x = Partial_mortality, y = ED_value, color = Species)) +
+     geom_point(size = 2, alpha = 0.7, color = "green") +
+     geom_smooth(method = "lm", se = TRUE) +
+     facet_wrap(~ED_level, scales = "free_y") +
+     theme_bw()
+```
+```{r}
+dat_wide <- ED_long %>%
+  select(GroupingProperty, Size_cm, Partial_mortality,
+         Colony_depth_ft, ED_level, ED_value) %>%
+  pivot_wider(names_from = ED_level, values_from = ED_value)%>%
+  na.omit()
+
+vars <- dat_wide %>%
+  select(Size_cm,
+         Partial_mortality,
+         Colony_depth_ft,
+         DW,
+         ED5,
+         ED50,
+         ED95) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  na.omit()
+
+res1 <- rcorr(as.matrix(vars), type = "pearson")
+
+corrplot(
+  res1$r,
+  p.mat = res1$P,
+  #sig.level = 0.05,
+  #insig = "p-value",
+  order = "hclust",
+  addrect = 2,
+  tl.srt = 45,
+  tl.cex = 0.6,
+  pch.cex = 0.8,
+  type = "upper",
+  method = "color",
+  addCoef.col = "black"
+)
+
+
+```
+
+```{r}
+
+#subset by spp
+plot_icra <- ICRA %>%
+  pivot_longer(
+    cols = c(Size_cm, Partial_mortality, Colony_depth_ft),
+    names_to = "Predictor",
+    values_to = "Value"
+  )
+ggplot(plot_icra,
+       aes(x = Value, y = ED_value)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(aes(group = 1), method = "lm", se = FALSE, color = "black") +
+  facet_wrap(ED_level ~ Predictor, scales = "free") +
+  theme_classic()
+
+plot_aglo <- AGLO %>%
+  pivot_longer(
+    cols = c(Size_cm, Partial_mortality, Colony_depth_ft),
+    names_to = "Predictor",
+    values_to = "Value"
+  )
+ggplot(plot_aglo,
+       aes(x = Value, y = ED_value)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(aes(group = 1), method = "lm", se = FALSE, color = "black") +
+  facet_wrap(ED_level ~ Predictor, scales = "free") +
+  theme_classic()
+
+
+#subset icra to look at PM seperately
+
+```
+
+
+```{r}
+#remember, Site effects are confounded with experimental runs and are therefore interpreted as block effects!!
+#starting with grouped ED_values
+
+#Q: Do colony traits affect ED, and do those effects differ among species? 
+m1<-lmer(
+    ED50 ~ Species + Colony_depth_ft + Partial_mortality + Size_cm + (1 | Site), data = cbass_dataset)
+
+m2<- lmer(
+    ED50 ~ Species * (Colony_depth_ft + Partial_mortality + Size_cm) + (1 | Site), data = cbass_dataset)
+
+anova(m1, m2) 
+#M1 has lower AIC
+summary(m1)
+emmeans(m1, ~ Species)
+emmeans(m1, pairwise ~ Species)
+```
+```{r}
+#just aglo icra
+m1<- lmer(
+  ED50 ~ Species + Colony_depth_ft + Partial_mortality + Size_cm + (1|Site),
+  data = subset(cbass_dataset, Species %in% c("ICRA", "AGLO"))
+)
+m2<-lmer(
+  ED50 ~ Species *( Colony_depth_ft + Partial_mortality + Size_cm ) + (1|Site),
+  data = subset(cbass_dataset, Species %in% c("ICRA", "AGLO"))
+)
+
+
+anova(m1, m2)
+
+summary(m1)
+
+#spp level emmeans
+emmeans(m1, ~ Species)
+emmeans(m1, pairwise ~ Species)
+```
+
+
+```{r}
+#if you want to look at atll of the ed vals!
+#By using the split(ED_long, ED_long$ED_level), can test effect of each ED level.
+models_main <- lapply(split(ED_long, ED_long$ED_level), function(df) {
+  lmer(
+    ED_value ~ Species + Colony_depth_ft + Partial_mortality + Size_cm + (1 | Site),
+    data = df
+  )
+})
+
+
+#add interactions (does xxx affect ED differently in each species)
+
+models_int <- lapply(split(ED_long, ED_long$ED_level), function(df) {
+  lmer(
+    ED_value ~ Species * (Colony_depth_ft + Partial_mortality + Size_cm) + (1 | Site),
+    data = df
+  )
+})
+
+
+#compare models
+anova_table <- lapply(names(models_main), function(ed) {
+  m1 <- models_main[[ed]]
+  m2 <- models_int[[ed]]
+  
+  an <- anova(m1, m2)
+  
+  an_df <- as.data.frame(an) %>%
+    rownames_to_column("model") %>%
+    mutate(ED_level = ed)
+  
+  an_df
+}) %>%
+  bind_rows()
+
+anova_table
+
+#model 1 show lower aic vals for each ED_level. no strong support for interactions
+
+
+
+
+#extract
+anova_main <- lapply(names(models_main), function(ed) {
+  m <- models_main[[ed]]
+  
+  an <- anova(m)
+  
+  an_df <- as.data.frame(an) %>%
+    rownames_to_column("term") %>%
+    mutate(ED_level = ed)
+  
+  an_df
+}) %>%
+  bind_rows()
+
+anova_main
+
+
+#emmeans
+emmeans_table <- lapply(names(models_main), function(ed) {
+  m <- models_main[[ed]]
+  
+  em <- emmeans(m, pairwise ~ Species)
+  
+  tidy(em$contrasts) %>%
+    mutate(ED_level = ed)
+}) %>%
+  bind_rows()
+
+emmeans_table
+```
+
+
+```{r}
+#individual trait effects
+
+#depth
+depth_table <- lapply(names(models_main), function(ed) {
+  m <- models_main[[ed]]
+  
+  em <- emtrends(m, ~ Species, var = "Colony_depth_ft")
+  
+  tidy(em) %>%
+    mutate(ED_level = ed, predictor = "Depth")
+}) %>%
+  bind_rows()
+
+#PM
+pm_table <- lapply(names(models_main), function(ed) {
+  m <- models_main[[ed]]
+  
+  em <- emtrends(m, ~ Species, var = "Partial_mortality")
+  
+  tidy(em) %>%
+    mutate(ED_level = ed, predictor = "PM")
+}) %>%
+  bind_rows()
+
+#size
+size_table <- lapply(names(models_main), function(ed) {
+  m <- models_main[[ed]]
+  
+  em <- emtrends(m, ~ Species, var = "Size_cm")
+  
+  tidy(em) %>%
+    mutate(ED_level = ed, predictor = "Size")
+}) %>%
+  bind_rows()
+
+trait_effects <- bind_rows(depth_table, pm_table, size_table)
+
+trait_effects
+
+
+```
+
+```{r}
+#combined traits
+lmm_traits_combined <- lmer(
+  ED_value ~ Species * ED_level +
+    Colony_depth_ft + Partial_mortality + Size_cm +
+    (1 | Site),
+  data = ED_long
+)
+
+anova(lmm_traits_combined)
+#ED_level is sig
+```
+

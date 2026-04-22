@@ -1,0 +1,174 @@
+---
+title: "ICRA_only"
+output: html_document
+---
+
+```{r}
+#ICRA analysis of partial mortality
+
+library(tidyverse)
+library(here)
+library(dplyr)
+library(readxl)
+library(lmerTest)
+library(emmeans)
+library(broom)
+library(lme4)
+library(car)
+library(corrplot)
+library(Hmisc )
+rm(list = ls())
+
+file_path <-here("Data")
+  cbass_dataset<-read.csv("Data/full_cbass_dataset.csv")
+  
+#subset ICRA
+ICRA<- cbass_dataset %>%
+  filter(cbass_dataset$Species == "ICRA")
+  
+
+  #long format
+ICRA_long <- ICRA %>%
+  pivot_longer(
+    cols = c(ED5, ED50, ED95, DW),
+    names_to = "ED_level",
+    values_to = "ED_value"
+  ) %>%
+  mutate(Species = factor(Species, levels = c("AABR", "AHYA", "AGLO", "ICRA")))
+
+
+#subset each value
+ED50 <- ICRA_long %>% filter(ED_level == "ED50")
+ED5<- ICRA_long %>% filter(ED_level == "ED5")
+ED95<- ICRA_long %>% filter(ED_level == "ED95")
+DW<- ICRA_long %>% filter(ED_level == "DW")
+
+ ICRA_wide <- ICRA_long %>%
+  select(GroupingProperty, Size_cm, Partial_mortality,
+         Colony_depth_ft, ED_level, ED_value, Site) %>%
+  pivot_wider(names_from = ED_level, values_from = ED_value)
+
+
+
+```
+
+```{r}
+#For ICRA only. Do colony size or partial mortality predict ED values after accounting for site-level variation?
+
+ ICRA_long %>%
+     ggplot(aes(x = Size_cm, y = ED_value, color = Species)) +
+     geom_point(size = 2, alpha = 0.7) +
+     geom_smooth(method = "lm", se = TRUE) +
+     facet_wrap(~ED_level, scales = "free_y") +
+     theme_bw()
+ 
+#test if PM and size are collinear
+ggplot(ICRA, aes(Size_cm, Partial_mortality)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE) +
+  theme_bw()
+
+ cor.test(ICRA$Size_cm, ICRA$Partial_mortality, method = "pearson")
+ cor.test(ICRA$Size_cm, ICRA$Partial_mortality, method = "spearman")
+ 
+ 
+ cor.test(ICRA$ED50, ICRA$Partial_mortality, method = "pearson")
+
+ #make a correlation matrix
+ cor_mat <- ICRA_wide %>%
+  select(Size_cm, Partial_mortality, Colony_depth_ft, DW, ED5, ED50, ED95) %>%
+  cor(use = "pairwise.complete.obs", method = "pearson")
+ 
+ corrplot(cor_mat, method = "color", type = "upper",
+         addCoef.col = "black", tl.cex = 0.7)
+ 
+ vars <- ICRA_wide %>%
+  select(Site,
+         Size_cm,
+         Partial_mortality,
+         Colony_depth_ft,
+         DW,
+         ED5,
+         ED50,
+         ED95) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  na.omit()
+ 
+ res1 <- rcorr(as.matrix(vars), type = "pearson")
+ 
+ corrplot(cor_mat,  p.mat = res1$P,
+         sig.level = 0.05, 
+         sig = "p-value",
+         order = 'hclust', 
+         addrect = 2, 
+         tl.srt = 45, 
+         tl.cex = 0.6,  
+         pch.cex = 0.8, 
+         type = 'upper')
+dev.off()
+
+#just ed50 
+lm(ED50 ~ Partial_mortality + Size_cm + Colony_depth_ft + Site, data = ICRA_wide)
+
+m1<-lmer(ED50 ~ Partial_mortality + Size_cm + Colony_depth_ft +  (1 | Site), data = ICRA_wide)
+
+m2<-lmer(ED50 ~ Partial_mortality * Size_cm + Colony_depth_ft +  (1 | Site), data = ICRA_wide)
+
+m3<-lmer(ED50 ~ Partial_mortality + Size_cm +  (1 | Site), data = ICRA_wide)
+
+m4<-lmer(ED50 ~ Partial_mortality * Size_cm +  (1 | Site), data = ICRA_wide)
+
+anova (m1, m2, m3, m4) #m3 has lowest AIC
+
+summary(m3)
+
+#  all vars here are continuous! No categorical fixed effect (i.e. Species)
+
+emm<- emmeans(m1, Partial_mortality + Size_cm +  | Species)
+emmeans()
+
+#run seeprate model for each ED
+#linear model
+lm_model_icra <- lapply(split(ICRA, ICRA$ED_level), function(df) {
+lm(
+ ED_value ~ Partial_mortality + Size_cm + Site,
+ data=ICRA_long
+)})
+lapply(lm_model_icra, anova)
+
+
+#linear mixed effects model
+models_icra <- lapply(split(ICRA, ICRA$ED_level), function(df) {
+  lmer(
+    ED_value ~ Partial_mortality + Size_cm + (1 | Site),
+    data = df
+  )
+})
+
+lapply(models_icra, Anova, type = 2)
+
+
+#across ed level
+lmer(
+ ED_value ~ ED_level + Size_cm + Partial_mortality +
+ (1|Site) + (1|GroupingProperty),
+ data = ICRA
+)
+```
+
+```{r}
+#If looking at cluster, must remove 3 samples.
+#removing sus samples that the cluster analysis show are likely mos-labeled (6 samples total)
+  to_remove <- c("3_AGLO_3", "4_AGLO_7", "9_AABR_1", "11_ICRA_8", "11_ICRA_5", "11_ICRA_10")
+ED_long <- ICRA %>% filter(!GroupingProperty %in% to_remove)
+
+#make cluster as a factor
+ICRA$Cluster_4 <- as.factor(ICRA$Cluster_4 )
+ICRA$Cluster_5 <- as.factor(ICRA$Cluster_5 )
+ICRA$Cluster_6 <- as.factor(ICRA$Cluster_6 )
+ICRA$Cluster_7 <- as.factor(ICRA$Cluster_7 )
+ICRA$Cluster_8 <- as.factor(ICRA$Cluster_8 )
+
+
+```
+

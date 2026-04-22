@@ -1,0 +1,84 @@
+```{r}
+
+library(tidyverse)
+library(here)
+library(dplyr)
+rm(list = ls())
+
+# path to your folder
+path <- "Data/"
+
+df <- list.files(path, pattern = "PAM\\.csv$", full.names = TRUE) %>%
+  map_dfr(read_csv, show_col_types = FALSE)
+
+df <- df %>%
+  mutate(
+    Temperature = as.numeric(Temperature),
+    Pam_value = as.numeric(Pam_value)
+  )
+
+df <- df %>%
+  mutate(
+    ColonyID = paste(Site, Species, Genotype, sep = "_")
+  )
+
+#define controls (29C)
+controls <- df %>%
+  filter(Temperature == 29) %>%
+  select(ColonyID, control_PAM = Pam_value)
+
+df2 <- df %>%
+  left_join(controls, by = "ColonyID")
+
+#calc percent change from controls
+df2 <- df2 %>%
+  mutate(
+    pct_change = ((Pam_value - control_PAM) / control_PAM) * 100
+  )
+
+#make sure % change from all controsl are 0
+df2 %>%
+  filter(Temperature == 29) %>%
+  select(ColonyID, Pam_value, control_PAM, pct_change)
+
+#smmarise
+summary_df <- df2 %>%
+  group_by(Site, ColonyID, Species, Genotype, Temperature) %>%
+  summarise(
+    mean_pct_change = mean(pct_change, na.rm = TRUE),
+    sd_pct_change = sd(pct_change, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  )
+library(ggplot2)
+
+ggplot(summary_df, aes(x = Temperature, y = mean_pct_change, group = ColonyID)) +
+  geom_line(alpha = 0.3) +
+  geom_point(alpha = 0.5) +
+  stat_summary(aes(group = 1), fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ Species) +
+  theme_bw() +
+  labs(y = "% change in Fv/Fm", x = "Temperature")
+
+ggplot(summary_df, aes(x = Temperature, y = mean_pct_change, color = Genotype)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2) +
+  theme_bw()+
+  facet_wrap("Species")
+
+library(lme4)
+
+mod1 <- lmer(
+  mean_pct_change ~ Temperature * Species + (1 | Site/ColonyID),
+  data = summary_df
+)
+
+mod2 <- lmer(
+  mean_pct_change ~ poly(Temperature, 2) * Species + (1 | Site/ColonyID),
+  data = summary_df
+)
+
+summary(mod1)
+summary(mod2)
+```
+
