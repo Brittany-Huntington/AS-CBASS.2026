@@ -1,0 +1,462 @@
+# Setup
+
+```{r Setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+This script creates a dendrogram of the bio-optical phenotype data from the compiled file created with ShinyProcessedFile_Compiler.R. 
+
+### Load Packages
+```{r, echo=FALSE, include=FALSE}
+
+##Load Packages
+library(ggplot2) #Required for ggplots
+library(dplyr)
+library(gplots)
+library(gridExtra)
+library(car)
+library(vegan)
+library(reshape)
+library(reshape2)
+library(broom)
+library(pvclust)
+library(dendextend)
+library(colorspace)
+library(circlize)
+library(viridis)
+library(caret)
+library(tidyverse)
+library(tidyr)
+library(igraph)
+library(fs)
+library(alluvial)
+library(ggalluvial)
+library(umap)     
+library(caret)
+options(scipen=999)
+set.seed(123)
+
+```
+
+# Loading Data 
+```{r loading data, echo=F}
+photophys <- read.csv("Outputs/AS26_PhenotypingData.csv", row.names = 1)
+
+```
+
+# Trajectory UMAPs 
+## Photophys UMAP  
+
+```{r photophys umap setup }
+######### set up photophys dataframe ######## 
+longphoto <- as.data.frame(t(photophys))
+colnames(longphoto) <- longphoto[1,] 
+longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
+longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
+longphoto$SampleID <- rownames(longphoto)
+longphoto <- longphoto %>% relocate(SampleID)
+fullyears <- longphoto 
+fullyears <- data.frame(fullyears[, colSums(is.na(fullyears)) == 0])
+
+allphoto <- fullyears %>% dplyr::select(-contains('Fo'), -contains('Fm'))
+rownames(allphoto) <- allphoto$SampleID
+photophys_clean <- allphoto %>% 
+   dplyr::select(-c(Ramet, CoralID, Timepoint, SampleID)) # remove non-numeric columns 
+
+
+photo.transit <- preProcess(x = photophys_clean, rangeBounds = c(0, 1), method = "range") # need to scale data 
+photo_proc <- predict(photo.transit, photophys_clean)
+photo_proc <- photo_proc[,-nearZeroVar(photo_proc)] # remove any columns with low variance across samples 
+photo_proc <- photo_proc %>%
+    dplyr::select(where(~ sum(is.na(.)) == 0))
+
+photo_umapresult<-umap(photo_proc, n_neighbors= 15, min_dist= 0.1, metric="euclidean", n_components=2) # these parameters can change quite a bit-- worth looking up to figure out what to set them at for your data specifically 
+plot(as.numeric(photo_umapresult$layout[,1]), as.numeric(photo_umapresult$layout[,2]), pch=19, cex=0.9, axes=T)
+
+
+##### linking metadata to umap points ###### 
+
+
+# --- Prep the Data for Lines and Points ---
+umap_plotting_data <- data.frame(
+  UMAP1 = photo_umapresult$layout[,1], 
+  UMAP2 = photo_umapresult$layout[,2], 
+  CoralID = metad$Ramet[match(rownames(photo_umapresult$layout), metad$SampleID)], ## change to your metadata columns of interest 
+  Timepoint = metad$Timepoint[match(rownames(photo_umapresult$layout), metad$SampleID)], 
+  Treatment = metad$Treatment[match(rownames(photo_umapresult$layout), metad$SampleID)], 
+  Species = metad$Species[match(rownames(photo_umapresult$layout), metad$SampleID)], 
+  Genotype = metad$CoralID[match(rownames(photo_umapresult$layout), metad$SampleID)] 
+)
+  
+
+# Ensure CoralID is a factor for grouping
+umap_plotting_data <- umap_plotting_data %>%
+  mutate(CoralID = as.factor(CoralID))
+
+umap_plotting_data <- umap_plotting_data %>% 
+  mutate(
+    Geno_color = substr(Genotype, nchar(Genotype), nchar(Genotype))
+  )
+
+# --- Plotting Code: Spp specific plots ---
+ggplot(umap_plotting_data, aes(x = UMAP1, y = UMAP2)) +
+  # 2. Plot the points (Start and End Locations)
+  geom_point(aes(shape = Timepoint, color = Species),
+             size = 1,
+             stroke = 1, 
+             alpha = 0.8) +
+
+  labs(title = "Photophysiology UMAP",
+       x = "UMAP Dimension 1",
+       y = "UMAP Dimension 2") +
+  theme_minimal()
+
+#write.csv(umap_results$layout, "Final_UMAP_Coords.csv")
+#ggsave(filename = 'Figures/UMAP/trajectory_photophys_splitbyspp_coloredbygeno_chull.png', plot = last_plot(), width = 7.5, height = 7.5, units = "in")
+
+
+```
+
+# NEW UMAP CODE 
+### Load Data and scale 
+```{r}
+set.seed(123)
+longphoto <- as.data.frame(t(photophys))
+colnames(longphoto) <- longphoto[1,] 
+longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
+longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
+longphoto$SampleID <- rownames(longphoto)
+longphoto <- longphoto %>% relocate(SampleID)
+fullyears <- longphoto 
+fullyears <- data.frame(fullyears[, colSums(is.na(fullyears)) == 0])
+
+allphoto <- fullyears %>% dplyr::select(-contains('Fo'), -contains('Fm'))
+
+##### dataset needs to have metrics in columns, samples in rows 
+rownames(allphoto) <- allphoto$SampleID
+photophys_clean <- allphoto %>% 
+   dplyr::select(-c(Ramet, CoralID, SampleID)) # remove non-numeric columns
+
+head(photophys_clean) 
+names(photophys_clean)[colSums(is.na(photophys_clean)) > 0]
+photophys_scaled <- photophys_clean %>%
+  scale() %>% # scaling with zscores instead 
+  as.data.frame()
+```
+
+
+### evalulating parameters and clustering 
+```{r}
+
+# Test range of n_neighbors values
+neighbor_vals <- c(5, 10, 15, 20, 30, 50)
+min_dist_vals <- c(0.01, 0.05, 0.1, 0.2, 0.5)
+
+umap_list <- lapply(neighbor_vals, function(n) {
+  fit <- umap(photophys_scaled, n_neighbors = n, min_dist = 0.1)
+  as.data.frame(fit$layout) %>%
+    setNames(c("UMAP1", "UMAP2")) %>%
+    mutate(n_neighbors = n,
+           Genotype = allphoto$CoralID, #add back whatever metadata you want
+           Species = allphoto$Species)
+})
+
+# Plot all versions for visual comparison
+bind_rows(umap_list) %>%
+  ggplot(aes(x = UMAP1, y = UMAP2, color = Species)) +
+  geom_point(size = 2, alpha = 0.8) +
+  facet_wrap(~n_neighbors, labeller = label_both, scales = "free") +
+  theme_classic() +
+  labs(title = "UMAP stability across n_neighbors values")
+
+# Testing stability of parameter selection: Fit UMAP twice at each neighbor value with different seeds and compare cluster assignments
+stability_results <- lapply(neighbor_vals, function(n) {
+  
+  fit1 <- umap(photophys_scaled, n_neighbors = n, 
+               min_dist = 0.1, random_state = 42)
+  fit2 <- umap(photophys_scaled, n_neighbors = n, 
+               min_dist = 0.1, random_state = 123)
+  
+  # Cluster both with DBSCAN -- objective clustering method, can change minPts and eps settings (will test eps settings later)
+  db1 <- dbscan(fit1$layout, eps = 0.5, minPts = 5)$cluster
+  db2 <- dbscan(fit2$layout, eps = 0.5, minPts = 5)$cluster
+  
+  data.frame(
+    n_neighbors = n,
+    ARI = adjustedRandIndex(db1, db2)
+  )
+}) %>%
+  bind_rows()
+
+# Plot stability vs n_neighbors
+ggplot(stability_results, aes(x = n_neighbors, y = ARI)) +
+  geom_line() +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "red") +
+  theme_classic() +
+  labs(title = "UMAP cluster stability vs n_neighbors",
+       x = "n_neighbors", y = "Adjusted Rand Index")
+## choose the smallest n_neighbors value where ARI > 0.8
+
+stability_grid <- expand.grid(
+  n_neighbors = neighbor_vals,
+  min_dist = min_dist_vals
+) %>%
+  rowwise() %>%
+  mutate(ARI = {
+    fit1 <- umap(photophys_scaled, n_neighbors = n_neighbors,
+                 min_dist = min_dist, random_state = 42)
+    fit2 <- umap(photophys_scaled, n_neighbors = n_neighbors,
+                 min_dist = min_dist, random_state = 123)
+    
+    db1 <- dbscan(fit1$layout, eps = 0.5, minPts = 5)$cluster
+    db2 <- dbscan(fit2$layout, eps = 0.5, minPts = 5)$cluster
+    
+    adjustedRandIndex(db1, db2)
+  })
+
+# Visualize as heatmap
+ggplot(stability_grid, aes(x = factor(n_neighbors), 
+                            y = factor(min_dist), 
+                            fill = ARI)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(ARI, 2)), size = 3) +
+  scale_fill_gradient2(low = "white", mid = "lightyellow",
+                       high = "darkgreen", midpoint = 0.6) +
+  theme_classic() +
+  labs(title = "UMAP stability grid search",
+       x = "n_neighbors", y = "min_dist")
+
+## tuning eps to umap scale 
+# Find optimal eps using k-nearest neighbor distance plot
+knn_dist <- kNNdist(umap_fit$layout, k = 5)
+plot(sort(knn_dist), type = "l",
+     xlab = "Points sorted by distance",
+     ylab = "5-NN distance",
+     main = "k-NN distance plot for eps selection") ## optimal value is elbow 
+# Run DBSCAN with chosen eps
+db <- dbscan(umap_fit$layout, 
+             eps = 0.5,      # replace with your elbow value
+             minPts = 5)     # minimum cluster size
+
+umap_coords <- umap_coords %>%
+  mutate(Cluster = as.factor(db$cluster))
+# Remember cluster 0 = noise points
+
+# Plot
+ggplot(umap_coords, aes(x = UMAP1, y = UMAP2, 
+                         color = Cluster, 
+                         shape = Species)) +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_classic() +
+  labs(title = "UMAP with DBSCAN clusters")
+```
+### final UMAP plotting code  
+```{r}
+# Final UMAP with optimized parameters -- replace with your optimal parameters!!! 
+umap_final <- umap(photophys_scaled,
+                   n_neighbors = 10,
+                   min_dist = 0.01,
+                   n_components = 2,
+                   random_state = 42)  # set seed for reproducibility
+
+umap_coords <- as.data.frame(umap_final$layout) %>%
+  setNames(c("UMAP1", "UMAP2")) %>%
+  mutate(
+    Genotype = allphoto$CoralID,
+    Species = allphoto$Species
+  )
+
+# Run DBSCAN on final UMAP — rerun kNN plot to tune eps
+knn_dist <- kNNdist(umap_final$layout, k = 5)
+# Plot the kNN distance curve to visually inspect
+data.frame(
+  index = 1:length(sort(knn_dist)),
+  distance = sort(knn_dist)
+) %>%
+  ggplot(aes(x = index, y = distance)) +
+  geom_line() +
+  theme_classic() +
+  labs(title = "k-NN distance plot",
+       x = "Points sorted by distance",
+       y = "5-NN distance")
+# Try a range of smaller eps values
+eps_vals <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
+
+eps_results <- lapply(eps_vals, function(e) {
+  db <- dbscan(umap_final$layout, eps = e, minPts = 5)
+  data.frame(
+    eps = e,
+    n_clusters = length(unique(db$cluster[db$cluster != 0])),
+    n_noise = sum(db$cluster == 0)
+  )
+}) %>%
+  bind_rows()
+
+print(eps_results)
+
+# Calculate rate of change to find elbow mathematically
+sorted_dists <- sort(knn_dist)
+rate_of_change <- diff(sorted_dists)
+
+# Elbow is where rate of change jumps most dramatically
+elbow_idx <- which.max(rate_of_change)
+eps_suggestion <- sorted_dists[elbow_idx]
+cat("Suggested eps:", eps_suggestion)
+
+# Run DBSCAN with optimized parameters
+db <- dbscan(umap_final$layout, 
+             eps = 0.6,
+             minPts = 4)
+
+# Check cluster assignments
+table(db$cluster)
+# cluster 0 = noise points not assigned to any cluster
+
+# Add cluster assignments to umap_coords
+umap_coords <- umap_coords %>%
+  mutate(Cluster = as.factor(db$cluster))
+
+# Plot
+u <- ggplot(umap_coords, aes(x = UMAP1, y = UMAP2,
+                         color = Cluster,
+                         shape = Treatment)) +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_classic() +
+  labs(title = "UMAP with DBSCAN clusters",
+       x = "UMAP1", y = "UMAP2")
+
+
+```
+
+## Identifying metrics that are significantly different across clusters: random forest importance analysis 
+```{r}
+
+# Join cluster assignments to scaled spectral data
+rf_data <- photophys_scaled %>%
+  mutate(Cluster = as.factor(umap_coords$Cluster))
+
+# Fit random forest
+rf_fit <- randomForest(Cluster ~ ., 
+                       data = rf_data,
+                       ntree = 500,
+                       importance = TRUE)
+
+# Extract variable importance
+importance_df <- as.data.frame(importance(rf_fit)) %>%
+  rownames_to_column("Metrics") %>%
+  arrange(desc(MeanDecreaseGini))
+
+# Plot top contributing metrics
+importance_df %>%
+  head(30) %>%
+  ggplot(aes(x = Metrics, y = MeanDecreaseGini)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "Spectral features distinguishing UMAP clusters",
+       x = "Photophysiology Metric",
+       y = "Mean decrease in Gini impurity")
+
+# high mean decrease in Gini means its consistently important for distinguishing clusters 
+
+### getting predictions of how metrics vary across clusters 
+# Step 1 — use random forest to identify top discriminating variables
+# reducing from 512 to a manageable set
+top_vars <- importance_df %>%
+  top_n(30, MeanDecreaseGini) %>%
+  pull(Metrics)
+
+# Step 2 — run Kruskal-Wallis only on those top variables 
+# this avoids multiple comparisons across all 512 variables 
+###### this may not be the best method for yall-- this is what I have been using on my fluorescent protein dataset
+kw_results <- photophys_scaled %>%
+  as.data.frame() %>%
+  mutate(Cluster = as.factor(db$cluster)) %>%
+  filter(Cluster != 0) %>%
+  select(Cluster, all_of(top_vars)) %>% 
+  pivot_longer(-Cluster,
+               names_to = "Variable",
+               values_to = "Value") %>%
+  group_by(Variable) %>%
+  kruskal_test(Value ~ Cluster) %>%
+  adjust_pvalue(method = "BH") %>%
+  filter(p.adj < 0.05)
+
+# Step 3 — post-hoc Dunn test for significant variables
+posthoc_results <- photophys_scaled %>%
+  as.data.frame() %>%
+  mutate(Cluster = as.factor(db$cluster)) %>%
+  filter(Cluster != 0) %>%
+  select(Cluster, all_of(kw_results$Variable)) %>%
+  pivot_longer(-Cluster,
+               names_to = "Variable",
+               values_to = "Value") %>%
+  group_by(Variable) %>%
+  dunn_test(Value ~ Cluster, p.adjust.method = "BH")
+
+### random forest 
+
+# Plot top 30 variables by importance
+v <- importance_df %>%
+  top_n(30, MeanDecreaseGini) %>%
+  ggplot(aes(x = reorder(Metrics, MeanDecreaseGini),
+             y = MeanDecreaseGini)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "Top 30 metrics by random forest importance",
+       x = "Metrics",
+       y = "Mean decrease in Gini impurity")
+
+#ggsave( v , file = 'Figures/randomforest_importance.png', height = 6, width = 6)
+```
+ 
+# Linear Discriminant Analysis 
+For looking at which metrics differ the most across predetermined groups. Would be useful for comparing metrics that vary across sites or species. 
+```{r}
+dats <- allphoto
+phys_lda_data <- dats %>% dplyr::select(where(~!all(is.na(.)))) %>% 
+  mutate(Genotype = as.factor(Genotype), 
+         Species = as.factor(Species)) %>% 
+  mutate(across(where(is.numeric), ~ as.numeric(scale(.)))) %>% na.omit()
+
+# 2. RUN THE LDA MODEL
+# Assuming your clean dataframe is called 'phys_lda_data' 
+# and your grouping column is called 'Species'
+
+# The ~ . formula tells R: "Predict Species using ALL other columns in the dataset (ignore Genotype)"
+lda_phys_model <- lda(Species ~ . - Genotype, data = phys_lda_data)
+
+# Print the model to see the "Coefficients of Linear Discriminants"
+# (This tells you which metrics were the most important for separating the groups!)
+print(lda_phys_model)
+
+# 3. EXTRACT THE SCORES FOR PLOTTING
+# We have to "predict" where each coral falls on the new LD1 axis
+lda_predictions <- predict(lda_phys_model)
+
+# Create a new dataframe for ggplot containing the grouping variable and the new LD1 score
+phys_lda_plot_data <- data.frame(
+  Species = phys_lda_data$Species,
+  LD1 = lda_predictions$x[,1] # Grabs the LD1 scores
+)
+
+# 4. BUILD THE DENSITY PLOT
+
+l <- ggplot(phys_lda_plot_data, aes(x = LD1, fill = Species)) +
+  # geom_density creates those smooth mountain peaks. alpha makes them see-through!
+  geom_density(alpha = 0.6) + 
+  
+  theme_bw() +
+  labs(
+    title = "LDA: Separating Samples of Different Species",
+   # subtitle = "Complete separation of peaks indicates a highly predictive model",
+    x = "Linear Discriminant 1 (LD1)",
+    y = "Density"
+  ) ; print(l)
+
+ggsave(plot = l, file = 'Figures/photophys_LDA.png')
+```
+

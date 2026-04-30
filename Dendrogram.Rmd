@@ -1,0 +1,575 @@
+---
+title: "Dendrogram American Samoa 2026"
+author: "Sophie Wong, Kira Turnham, Brittany Huntington, Courtney Couch, Edo Sena, Kenneth Hoadley"
+date: "02/17/2026"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  html_notebook:
+    toc: yes
+    toc_float: yes
+---
+
+# Setup
+
+```{r Setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+rm(list=ls())
+```
+
+
+This script creates a dendrogram of the bio-optical phenotype data from the Fiji 2025 expedition.
+
+### Load Packages
+```{r, echo=F}
+##Install Packages if Needed
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("dplyr")) install.packages("dplyr")
+
+##Load Packages
+library(ggplot2) #Required for ggplots
+library(dplyr)
+library(gplots)
+library(gridExtra)
+library(car)
+library(vegan)
+library(reshape)
+library(reshape2)
+library(broom)
+library(pvclust)
+library(dendextend)
+library(colorspace)
+library(circlize)
+library(viridis)
+library(caret)
+library(tidyverse)
+library(tidyr)
+library(igraph)
+library(fs)
+
+```
+
+### Changing file names 
+```{r renaming raw files}
+# Read the mapping file
+sample_metadata <- read.csv(file = "Outputs/AS26_MAPPmetadata_expt.csv", check.names = F)
+#sample_metadata <- sample_metadata %>% na.omit()
+#depth_metadata <- read.csv(file = 'Outputs/AS26_DepthGradientmetadata.csv')
+#sample_metadata <- sample_metadata %>% full_join(depth_metadata)
+```
+
+# Making dendrogram 
+
+```{r dendro}
+photophys <- read.csv("Outputs/AS26_PhenotypingData_expt.csv", row.names = 1)
+#photodeep <- read.csv('Outputs/AS26_DepthGradientPhenotypingData.csv', row.names =1)
+#photophys <- full_join(photophys, photodeep)
+
+longphoto <- as.data.frame(t(photophys))
+colnames(longphoto) <- longphoto[1,] 
+longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
+longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
+longphoto$SampleID <- rownames(longphoto)
+longphoto <- longphoto %>% relocate(SampleID)
+
+#remove the duplicate site 7s
+longphoto <- longphoto %>%
+filter(
+    # Look for ICRA or AHYA anywhere in the name, AND 005 at the end
+    !(startsWith(SampleID, "t7") & grepl("icra|ahya", SampleID) & endsWith(SampleID, "005r.processed.csv")),
+    
+    # Look for AGLO or AABR anywhere in the name, AND 002 at the end
+    !(startsWith(SampleID, "t7") & grepl("aglo|aabr", SampleID) & endsWith(SampleID, "002r.processed.csv"))
+  )
+
+longphoto$SampleID_clean <- longphoto$SampleID %>%
+  tolower() %>%
+  sub("\\.processed\\.csv$", "", .) %>%
+  sub("\\._?\\d{2,3}r$", "", .) %>%   # handles ._02r OR .002r
+  trimws()
+
+#check if duplicates
+any(duplicated(longphoto$SampleID_clean))
+
+
+valid_ids <- sample_metadata$UniqueID
+
+longphoto <- longphoto %>%
+  filter(SampleID_clean %in% valid_ids)
+
+#longphoto <- longphoto %>%
+#  filter(!grepl("^[aoiAOI]", SampleID_clean))
+
+#save this long format data
+
+write.csv(longphoto, "Outputs/longphoto_clean.csv", row.names = FALSE)
+```
+
+
+```{r dendro}
+fullyears <- longphoto 
+
+
+fullyears <- data.frame(fullyears[, colSums(is.na(fullyears)) == 0])
+
+fullyears <- fullyears %>% select(-contains(c('Fo', "Fm"))) # removing Fo and Fm metrics because already included in Quant calculations. Script used to also remove "Con", but since instrument variability were normalized, don't need to remove.
+dim(fullyears)
+Alls.cntn<-fullyears
+Alls.transit<-preProcess(x=Alls.cntn, rangeBounds = c(0,1), method="range")
+Alls.trans<-predict(Alls.transit, Alls.cntn)
+Alls.preproc<-Alls.trans[,-nearZeroVar(Alls.trans)] # sometimes can throw an error, could be excluded 
+
+dim(Alls.preproc)
+Alls.cor<-Alls.preproc 
+Alls.cor[,2:ncol(Alls.cor)] <- lapply(Alls.cor[,2:ncol(Alls.cor)], as.numeric)
+Alls.cor <- Alls.cor[,-1]
+#Alls.cor <- na.omit(Alls.cor) #had to remove this becuae it resulted in 0 for everything
+# Remove columns with all NAs or zero variance
+bad_cols <- sapply(Alls.cor, function(x) all(is.na(x)) || sd(x, na.rm = TRUE) == 0)
+Alls.cor_clean <- Alls.cor[, !bad_cols]
+descrCor<-cor(Alls.cor_clean)
+
+```
+
+
+```{r dendro}
+cbb<-pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=100)
+save(cbb, file = "Outputs/cbb_AS26_expt.RData")
+```
+
+
+```{r dendro}
+##### label color coding ####### 
+load("Outputs/cbb_AS26_expt_1000bs.RData")
+# Create a named color vector (each unique species, i.e. SiteID gets a color)
+#site_ids <- unique(guam_mapplist$mapp_no)
+site_ids <- unique(sample_metadata$Species)
+
+#site_colors <- setNames(magma(length(site_ids)), site_ids)
+my_custom_palette <- c( "chartreuse3", "violetred3", "sienna2", "orchid") 
+# This links "Species A" -> "DarkGreen", etc.
+site_colors <- setNames(my_custom_palette[1:length(site_ids)], site_ids)
+
+# Get the label order from the dendrogram
+dend_labels <- labels(as.dendrogram(cbb))
+#dend_labels <- labels(as.dendrogram(cbb))
+# Match SiteIDs to dendrogram label order
+#label_sites <- trimws(sample_metadata$Species[match(dend_labels, sample_metadata$SampleID)])
+# Get the color for each label based on its SiteID
+#label_colors <- site_colors[label_sites]
+#cb <- color_labels(as.dendrogram(cbb), col = label_colors)
+
+
+# Convert to dendrogram
+d_obj <- as.dendrogram(cbb)
+# 3. Use the cleaned labels to match your SiteIDs
+dend_labels <- labels(d_obj)
+#dend_labels_clean <- sub("_002$", "", dend_labels)
+#dend_labels_clean <- sub("\\._(02|05)r$", "", dend_labels_clean)
+dend_labels_clean <- dend_labels %>%
+    tolower() %>%
+  sub("\\.processed\\.csv$", "", .) %>%
+  sub("\\._?\\d{2,3}r$", "", .) %>%   # handles ._02r OR .002r
+  trimws()
+
+colnames(sample_metadata) <- make.names(colnames(sample_metadata), unique = TRUE)
+
+#sample_metadata <- sample_metadata %>%
+  #filter(`CBASS / Sophie` == "CBASS") %>%
+ # filter(!is.na(`CBASS / Sophie`)) %>%
+#  filter(!is.na(UniqueID)) %>%
+#  filter(!grepl("^[aoiAOI]", UniqueID))
+
+sample_metadata$UniqueID <- sample_metadata$UniqueID %>%
+  tolower() %>%
+  trimws()
+
+label_sites <- sample_metadata$Species[
+  match(dend_labels_clean, sample_metadata$UniqueID)
+]
+label_colors <- site_colors[label_sites]
+label_colors[is.na(label_colors)] <- "black"
+d_obj <- set(d_obj, "labels_col", label_colors)
+
+#only analyze data here from experiment
+#label_sites <- trimws(sample_metadata$Species[match(dend_labels_clean, sample_metadata$UniqueID)])
+
+
+# Overwrite the actual label text for ease of viewing/reading
+labels(d_obj) <- labels(d_obj) %>%
+  tolower() %>%
+  sub("\\.processed\\.csv$", "", .) %>%   # remove file suffix
+  sub("\\.\\d{3}r$", "", .) %>%           # remove .002r / .005r
+  trimws()
+
+#make sure there are no duplicates
+table(labels(d_obj)) %>% sort(decreasing = TRUE) %>% head()
+```
+
+
+```{r dendro}
+#labels_cex(cb)<-0.8
+labels_cex(d_obj) <- 0.8
+samp<-"Figures/Dendro-Species_expt_circle.pdf"
+pdf(file = samp, width = 12, height = 12, bg="transparent")
+#circlize_dendrogram(as.dendrogram(cb), labels_track_height = 0.05, dend_track_height = 0.45, labels=TRUE)
+circlize_dendrogram(d_obj,labels_track_height = 0.05,dend_track_height = 0.45)
+legend("topright", legend = names(site_colors), fill = site_colors, title = "Species")
+dev.off()
+
+labels_cex(d_obj) <- 0.3
+samp<-"Figures/Dendro-Species_expt_tree.pdf"
+pdf(file = samp, width = 10, height = 12)
+plot(d_obj, horiz = TRUE,
+  main = "Dendrogram - Species",
+  ylab = "Height")
+legend(
+  "topleft",
+  legend = names(site_colors),
+  fill = site_colors,
+  title = "Species",
+  cex = 0.8)
+dev.off()
+
+```
+
+```{r}
+# 2. Match Depths to the dendrogram label order
+library(dendextend)
+library(viridis)
+library(scales)
+# We pull the numeric depth for each sample in the order they appear in the tree
+depth_vector <- as.numeric(sample_metadata$Colony.Depth..ft.[match(dend_labels, sample_metadata$SampleID)])
+
+# 3. Create a Color Gradient function
+# 'magma' or 'viridis' is great for depth; 'reverse = TRUE' makes deep water darker
+col_fun <- colorRampPalette(c("cyan", "darkblue")) 
+
+# 4. Map the depths to the colors
+# We scale the depths to a range of 0-100 to pick colors from the gradient
+scaled_depths <- round(rescale(depth_vector, to = c(1, 100)))
+label_colors <- col_fun(100)[scaled_depths]
+
+cb <- color_labels(as.dendrogram(cbb), col = label_colors)
+
+labels_cex(cb)<-0.6
+samp<-"Figures/Dendro-Depth_nocon_all.pdf"
+pdf(file = samp, width = 12, height = 12, bg="transparent")
+circlize_dendrogram(as.dendrogram(cb), labels_track_height = 0.05, dend_track_height = 0.45, labels=TRUE)
+# legend("topright", legend = names(scaled_depths), fill = label_colors, title = "Site")
+dev.off()
+
+```
+
+# Figures
+
+### Figure Title
+Write figure caption.
+Note: Adjust figure size if needed.
+
+Circular bar graph 
+``` {r standgfp} 
+################### 
+#orderbleach<-data.frame(fullyears[match(labels(cb), fullyears$SampleID),])
+orderbleach<-data.frame(maxwavelength_bycol[match(labels(cb), maxwavelength_bycol$CoralID),])
+
+data3<-orderbleach
+dim(data3)
+#colnames(data3)
+data3$new<-ifelse(data3$standGFP.3 > 1, 1, 0)
+
+empty_bar <- 1
+to_add<-matrix(NA, empty_bar, ncol(data3))
+colnames(to_add)<-colnames(data3)
+data3<-rbind(data3, to_add)
+data3<-rbind(data3, to_add)
+data3<-rbind(data3, to_add)
+data3$id<-seq(1,dim(data3)[1],1)
+
+label_data <- data3
+ 
+number_of_bar <- nrow(label_data)
+angle <-  90 - 360 * (label_data$id-0.5)/number_of_bar    
+label_data$hjust<-ifelse( angle < -75, 1, 0)
+label_data$angle<-ifelse(angle < -75, angle+180, angle)
+
+p <- ggplot(data3, aes(x=as.factor(id), y=-standGFP.3*10, fill=as.factor(new))) +   
+  geom_bar(stat="identity") +
+  scale_fill_manual("legend", values=c("0"="chocolate3", "1"="chartreuse3")) +
+  ylim(500,-100) +
+  
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = unit(rep(-2,4), "cm")
+    	   ) +
+  
+  coord_polar(start = 0) #+
+  #geom_text(data=label_data, aes(x=id, y=-100, label=rownames(data3), hjust=hjust), color="black", fontface="bold",alpha=0.6, size=2.25, angle= label_data$angle, inherit.aes = TRUE) 
+  # geom_text(data=label_data, aes(x=id, y=-100, label="", hjust=hjust), color="black", fontface="bold",alpha=0.6, size=2.25, angle= label_data$angle, inherit.aes = TRUE) + 
+  # geom_text(
+  #   label=rownames(data3), 
+  #   nudge_x = 0.25, nudge_y = 0.25, angle= label_data$angle,
+  #   check_overlap = T, size = 1.5
+  # )
+  p
+samp<-paste("Figures/photo/standgfp3_circularbar_gfpdendro", ".pdf", sep="")
+pdf(file = samp, width = 10, height = 10, bg="transparent")
+p
+dev.off()
+
+
+```
+
+
+# Significant photophysiology metrics based on bleaching metrics 
+## Identifying significantly correlated photophys to bleaching metrics 
+```{r}
+### just for my own ease of interpretation, I pull out the "meta metrics" which describe more about the relative changes in the photophys traces throughout the light protocol, but these can and should stay in if you want to make the dendrogram about photophysiological differences across colonies/species 
+metrics_to_use_nometa <- grep("L|D|Comp|Camp|range|mean|max|min|slope", colnames(lightresponse), invert = T, value = T) 
+lightresponse <- photophys %>% select(metrics_to_use_nometa)
+metrics_to_use <- metrics_to_use_nometa[-1]
+
+######## 
+
+FinDa <- lightresponse %>% 
+  right_join(bleach_metrics)
+
+FinDa <- FinDa %>% dplyr::select(-contains(c('Fm', 'Fo'))) # remove these two metrics because Quant is calculated from them 
+FinDa <- FinDa %>% dplyr::filter(!is.na(Quant.1.0 ))
+
+FinDa <- FinDa %>%  column_to_rownames("Genotype")
+FinDa <- FinDa %>% dplyr::select(where(~!all(is.na(.))))
+
+   # Get the names of the columns to correlate
+all_vars <- FinDa %>% colnames(.)
+# Get the names of the non-response metric columns
+other_vars <- setdiff(all_vars, metrics_to_use)
+# grouping by treatment 
+
+# Create an empty list to store the results
+cor_results <- list()
+
+# Loop through each fp_data variable
+for (photo_var in metrics_to_use) {
+  # For each photo_data variable, loop through all other variables
+  for (other_var in other_vars) {
+    
+    # Calculate the correlation and p-value
+    test_result <- cor.test(
+      FinDa[[photo_var]], 
+      FinDa[[other_var]], 
+      method = "spearman", 
+      use = "complete.obs"
+    )
+    
+    # Store the results in the list
+    cor_results <- append(cor_results, list(data.frame(
+      Var1 = photo_var,
+      Var2 = other_var,
+      Correlation = test_result$estimate,
+      PValue = test_result$p.value
+    )))
+  }
+}
+
+# Combine the list of dataframes into a single dataframe
+cor_df <- bind_rows(cor_results)
+
+############ removing nonsignificant variables from dataframe to reduce bonferroni correction 
+sigsubset <- cor_df %>% 
+ dplyr::filter(abs(Correlation) > 0.3) 
+
+sigsubset <- sigsubset %>%
+  group_by(Var2) %>%
+  mutate(PValue_BY = p.adjust(PValue, method = "BY"), # use BH for photophys analyses and BY for other comparisons 
+         PValue_BH = p.adjust(PValue, method = 'BH')) %>% 
+  ungroup()
+
+# Now, filter for significant correlations using the new adjusted p-value
+significant_correlations <- sigsubset %>%
+  dplyr::filter(PValue_BH < 0.05) %>%
+  #dplyr::filter(abs(Correlation) > 0.2) %>%
+  dplyr::rename(from = Var1, to = Var2, weight = Correlation)
+write.csv(significant_correlations, 'Outputs/photophys_bleachingresponse_BHpvaladj.csv', row.names = F)
+
+##### can also use permutation based correlation threshold instead of pvalue 
+```
+
+## Bootstrap clustering support across dendrogram branches 
+``` {r}
+##### pvclust will calculate bootstrap values for you!! just change nboot to >1000 to increase replication 
+cbb<-pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=1000) 
+
+##### incorporate AU values to find # of significant clusters (AU > 0.95) 
+signif_clusters <- pvpick(cbb, alpha = 0.95)$clusters  #30 clusters!
+signif_clusters <- pvpick(cbb, alpha = 0.99)$clusters  #17 clusters!
+
+dend_with_p <- as.dendrogram(cbb)
+
+dend_with_p <- color_branches(dend_with_p, k = 4) # use the number of significant clusters from pvpick
+
+plot(dend_with_p)
+##### plotting dendrogram ####### 
+
+
+labels(dend_with_p) <- labels(dend_with_p) %>%
+  tolower() %>%
+  sub("\\.processed\\.csv$", "", .) %>%   # remove file suffix
+  sub("\\.\\d{3}r$", "", .) %>%           # remove .002r / .005r
+  trimws()
+
+
+dend_with_p <- set(dend_with_p, "labels_col", label_colors)
+
+samp<-"Figures/Dendro-by_4k.pdf"
+pdf(file = samp, width = 11, height = 11, bg="transparent")
+#circlize_dendrogram(dend_with_p, labels_track_height = 0.05, dend_track_height = 0.45, labels=TRUE)
+plot(dend_with_p, horiz = TRUE,
+  main = "Dendrogram - Species",
+  ylab = "Height")
+#legend(
+ # "topleft",
+  #legend = names(Group),
+ # fill = site_colors,
+  #title = "Group",
+  #cex = 0.7)
+dev.off() 
+
+samp<-"Figures/Dendro-by_7k_circle.pdf"
+pdf(file = samp, width = 12, height = 12, bg="transparent")
+circlize_dendrogram(dend_with_p, labels_track_height = 0.05, dend_track_height = 0.45, labels=TRUE)
+legend("topright", legend = names(site_colors), fill = site_colors, title = "Species")
+dev.off() 
+```
+```{r}
+# make branches use custom cluster colors instead of species-like colors
+
+dend_plot <- dend_with_p
+
+# smaller labels
+dend_plot <- dendextend::set(dend_plot, "labels_cex", 0.45)
+
+# custom branch colors for 4 groups
+branch_cols <- c(
+  "black",
+  "darkgoldenrod4",
+  "grey45",
+  "steelblue4"
+  
+)
+
+
+dend_plot <- dendextend::color_branches(
+  dend_plot,
+  k = 4,
+  col = branch_cols
+)
+
+# keep labels colored by species
+dend_plot <- dendextend::set(dend_plot, "labels_col", label_cols)
+
+pdf("Figures/Dendro-by_4k.pdf", width = 11, height = 11)
+
+plot(
+  dend_plot,
+  horiz = TRUE,
+  main = "Branches = Cluster | Labels = Species",
+  ylab = "Height"
+)
+
+legend(
+  "topleft",
+  legend = names(species_cols),
+  fill = species_cols,
+  title = "Species",
+  bty = "n",
+  cex = 0.8
+)
+
+legend(
+  "bottomleft",
+  legend = paste("Cluster", 1:4),
+  lwd = 2,
+  col = branch_cols,
+  title = "Tree Groups",
+  bty = "n",
+  cex = 0.8
+)
+
+dev.off()
+```
+
+```{r}
+library(dendextend)
+
+# --- start from your dendrogram object ---
+# Example: dend_with_p already exists
+
+# 1. Make sample labels smaller
+
+dend_plot <- as.dendrogram(dend_with_p)
+
+
+dend_plot <- dendextend::set(dend_plot, "labels_cex", 0.35)
+dend_plot <- dendextend::color_branches(dend_plot, k = 4)
+
+# 3. Color LABELS by species
+# assumes labels look like t1_aabr1._02r etc
+
+labs <- labels(dend_plot)
+
+species <- ifelse(grepl("aabr", labs, ignore.case = TRUE), "AABR",
+           ifelse(grepl("aglo", labs, ignore.case = TRUE), "AGLO",
+           ifelse(grepl("ahya", labs, ignore.case = TRUE), "AHYA",
+           ifelse(grepl("icra", labs, ignore.case = TRUE), "ICRA", NA))))
+
+species_cols <- c(
+  AABR = "chartreuse3",
+  AGLO = "violetred3",
+  AHYA = "sienna2",
+  ICRA = "orchid"
+)
+
+label_cols <- species_cols[species]
+
+# custom branch colors for 4 groups
+branch_cols <- c("black", "grey50", "darkred", "steelblue4")
+dend_plot <- dendextend::color_branches(
+  dend_plot,
+  k = 4,
+  col = branch_cols
+)
+dend_plot <- dendextend::set(dend_plot, "labels_cex", 0.45)
+dend_plot <- dendextend::set(dend_plot, "labels_col", label_cols)
+
+
+
+# 4. Save figure
+samp <- "Figures/Dendro-by_4k.pdf"
+```
+
+
+```{r}
+pdf("Figures/Dendro-by_4k.pdf", width = 11, height = 11)
+
+plot(
+  dend_plot,
+  horiz = TRUE,
+  main = "Branches = Cluster | Labels = Species"
+)
+
+legend(
+  "topleft",
+  legend = names(species_cols),
+  fill = species_cols,
+  cex = 0.8,
+  bty = "n"
+)
+
+dev.off()
+```
+
