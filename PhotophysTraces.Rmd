@@ -1,0 +1,115 @@
+---
+title: "Photophys Traces"
+output: html_document
+date: "2026-02-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggh4x)
+```
+
+# Photophys data loading 
+
+```{r photophys}
+photophys <- read.csv("Outputs/AS26_PhenotypingData_normalized.csv", row.names = 1)
+# cluster object from Dendrogram.Rmd is called cbb
+clusterer <- cbb
+longphoto_shortie <- photophys %>% 
+  select(-c(uni, metrix)) %>% 
+  pivot_longer(
+    cols = -c(metric,stage, col), # Selects all columns except "Metric"
+    names_to = "SampleID",
+    values_to = "Value"
+  ) 
+longphoto_shortie <- longphoto_shortie %>% 
+    dplyr::filter(!grepl('005', SampleID)) %>% 
+  pivot_wider(
+    names_from = metric,
+    values_from = Value
+  )
+longphoto_shortie <- longphoto_shortie[,1:17]
+```
+
+
+```{r}
+# Assuming 'hc' is your hclust object and 'df' is your original data
+# 1. Cut the tree into 4 clusters
+clusters <- cutree(cbb, k = 6)
+
+# 2. Add the cluster assignments to your original dataframe
+df_with_clusters <- cbind(longphoto_shortie, Cluster = clusters)
+
+# 3. Pull out samples belonging to Cluster 1
+cluster_1_samples <- df_with_clusters %>% dplyr::filter(Cluster == 1) %>% 
+  distinct(SampleID)
+
+# 4. View the result
+print(cluster_1_samples)
+
+df_with_clusters[, 4:17] <- lapply(df_with_clusters[, 4:17], function(x) {
+  as.numeric(as.character(x))
+})
+
+sum_photo <- df_with_clusters %>% 
+  group_by(stage, col, Cluster) %>%
+    summarise(across(where(is.numeric), mean, na.rm = TRUE ))
+
+sum_photo_long <- sum_photo %>% 
+   pivot_longer(
+    cols = -c(stage, col, Cluster), # Selects all columns except "Metric"
+    names_to = "Metric",
+    values_to = "Value"
+  ) 
+
+# 1. Empirically 'pick' the significant clusters
+# alpha = 0.95 corresponds to the 95% confidence level
+signif_clusters <- pvpick(cbb, alpha = 0.98)
+
+# 2. View the clusters and the samples within them
+print(signif_clusters$clusters)
+
+# 3. See the AU p-values for these specific clusters
+print(signif_clusters$edges)
+```
+# Plotting traces
+```{r}
+sub_photo <- sum_photo_long %>% 
+  dplyr::filter(Metric != 'nTau1' & Metric !=  'nTau2' & Metric != 'nCon'& Metric != 'Fm' & Metric != 'Fo' & col != 'All' & col != 'Ratio12' & col != 'Ratio32' & col != 'Ratio42') %>% 
+  dplyr::mutate(stage = as.numeric(as.character(stage))) %>% 
+    dplyr::filter(stage >=1  & stage <= 27) %>% 
+  arrange(stage)
+
+# 2. Extract the branch colors assigned by color_branches
+# This pulls the unique colors used for the clusters in order
+extract_cols <- unique(get_leaves_branches_col(dend))
+
+cluster_cols <- c("1" = "#CC476B", "2" = "#9F7000", "3" = "#228B00", "4" = "#009681", "5" = "#0082CE","6" = "#B646C7")
+# 3. Create a clean lookup table for your ggplot
+
+ggplot(sub_photo) + 
+  geom_line(aes(x = stage, y = Value, group = interaction(col, Cluster), colour = col)) + 
+  facet_grid(Metric ~ Cluster, scales = "free_y") +
+  theme_minimal() 
+ggsave(plot = last_plot(), filename = "Figures/Photophys_tracesbycluster.jpeg")
+```
+
+```{r}
+sum_quant <- df_with_clusters %>%  
+  pivot_longer(
+    cols = -c(stage, col, Cluster, SampleID), # Selects all columns except "Metric"
+    names_to = "Metric",
+    values_to = "Value"
+  ) 
+sum_quant <- sum_quant %>% 
+  dplyr::filter(Metric == "Quant") 
+ggplot(sum_quant) + 
+  geom_line(aes(x = stage, y = Value, group = interaction(col, SampleID), colour = col)) + 
+  facet_grid( col ~ Cluster, scales = "free_y") +
+  theme_minimal() 
+ggsave(plot = last_plot(), filename = "Figures/Photophys_tracesbycluster.jpeg")
+```
+
