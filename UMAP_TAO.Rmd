@@ -45,6 +45,7 @@ photophys <- read.csv("./Data/AS26_PhenotypingData_expt.csv", row.names = 1)
 
 ```
 
+#OLD UMAP CODE
 # Trajectory UMAPs 
 ## Photophys UMAP  
 
@@ -153,12 +154,73 @@ allphoto.ed=allphoto %>% mutate(
   filter(ED50<40,ED50ci95<=2)
 #allphoto.ed$ED50
 
-ppParam=names(photophys_clean)
+#colinearity test
+# 1. Calculate the full correlation matrix (highly optimized)
+# Use "pairwise.complete.obs" if you have NAs in your sensor data
+cor_matrix <- cor(allphoto.ed[, ppParam], use = "pairwise.complete.obs")
+
+# 2. Flatten the matrix into a long-format table
+# We use lower.tri to avoid duplicate pairs (A-B and B-A) and self-correlation (A-A)
+cor_tri <- which(lower.tri(cor_matrix), arr.ind = TRUE)
+
+cor_df <- data.frame(
+  Sensor1 = rownames(cor_matrix)[cor_tri[, 1]],
+  Sensor2 = colnames(cor_matrix)[cor_tri[, 2]],
+  Correlation = cor_matrix[cor_tri]
+)
+
+to_remove <- caret::findCorrelation(cor_matrix, cutoff = 0.8, exact = TRUE)
+
+# 3. Create the "thinned" parameter list
+ppParam_thinned <- ppParam[-to_remove]
+
+# 4. Report results
+cat("Original count:", length(ppParam), "\n")
+cat("Thinned count: ", length(ppParam_thinned), "\n")
+cat("Removed:       ", length(to_remove), "\n")
+
+#Stability Selection with LASSO 
+#Meinshausen, N., & Bühlmann, P. (2010). Stability selection. Journal of the Royal Statistical Society Series B: Statistical Methodology, 72(4), 417-473.
+################################################
+################################################
+#Claude's Version: Sonnet 3.6
+library(stabs)
+library(glmnet)
+
+# Prepare model matrix (no intercept, glmnet handles it)
+X <- as.matrix(allphoto.ed[, ppParam_thinned])
+y <- allphoto.ed[["ED50"]]
+
+# Stability selection with LASSO base learner
+#cutoff = .75 and PFER = 1 returned no selected params
+#cutoff = .75 and PFER = 1 returned no selected params
+
+stab_result <- stabsel(
+  x = X,
+  y = y,
+  fitfun = lm,
+  cutoff = 0.6,      # selection probability threshold
+  PFER = 5# per-family error rate bound
+)
+
+# View results
+print(stab_result)
+plot(stab_result)
+
+# Extract selected variables
+selected_vars <- names(stab_result$selected)
+cat("Selected variables:\n")
+print(selected_vars)
+################################################
+
+################################################
+#Tom's Janky LM run
 library(tidyverse)
 library(broom)
 ParamLM.DF=NULL
-bagfraction=.63
-for (ri in 1:5){
+bagfraction=.63 # same as full bootstrap. So why not bootstrap?
+Nrounds=5
+for (ri in 1:Nrounds){
   allphoto.ed.bag=allphoto.ed[sample(1:nrow(allphoto.ed),size=floor(bagfraction*nrow(allphoto.ed))),]
   ParamLM <- allphoto.ed.bag %>%
     dplyr::select(all_of(c("ED50",ppParam))) %>% 
@@ -180,6 +242,7 @@ ppParam_4of5=ParamLM.DF %>% group_by(ppParam) %>% summarize(pSIG=sum(p.value<alp
 
 allphoto.ed %>% ggplot(aes(x=.data[[ppParam_4of5[sample(1:length(ppParam_4of5),1)]]],y=ED50))+geom_point()+stat_smooth(method="lm")
 allphoto.ed %>% ggplot(aes(x=.data[["L12CompR1.qqP.2"]],y=ED50))+geom_point()+stat_smooth(method="lm")
+################################################
 
 ```
 
