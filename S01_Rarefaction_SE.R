@@ -56,6 +56,9 @@ ED50dt_df=PPpoints %>%
   group_by(Genotype) %>% 
   summarize(RMS_ED50dT=sqrt(mean(ED50dT^2)))
 BIC_df=BIC_df %>% left_join(ED50dt_df,by="Genotype")
+out_df=BIC_df %>% dplyr::select(-Round) %>% mutate(PhPh_Genotype=paste0("t",as.numeric(substr(Genotype,7,8)),"_",str_to_lower(substr(Genotype,1,4)),as.numeric(substr(Genotype,11,12))))
+write.csv(x = out_df,file = "./Data/AS26_ED50_CI_BIC_TAO.csv")
+
 #BIC_df$Nt[BIC_df$Nt==7]=7.5
 #BIC_df$CIpval=NA
 #BIC_df$BICpval=NA
@@ -111,26 +114,27 @@ dim(BIC_df)
 for(r in (minrare+1):(maxrare+1)){
   modBIC=t.test(subset(BIC_df,Nt==(r))$BIC,subset(BIC_df,Nt==(r-1))$BIC)
   modCI=t.test(subset(BIC_df,Nt==(r))$ED50ci95,subset(BIC_df,Nt==(r-1))$ED50ci95)
-  BIC_df$BICpval[BIC_df$Nt==r]=modBIC$p.value
-  BIC_df$CIpval[BIC_df$Nt==r]=modCI$p.value
+  BIC_df$BICpval[BIC_df$Nt==r]=p.adjust(modBIC$p.value,method="fdr",n=4)
+  BIC_df$CIpval[BIC_df$Nt==r]=p.adjust(modCI$p.value,method="fdr",n=4)
 }
 
+BAD_THRESHOLD=2
 stepmet=BIC_df %>% group_by(Nt) %>% 
   summarize(meded50ci=median(ED50ci95,na.rm=T),
             medBIC=median(BIC,na.rm=T),
-            pBAD=length(which(ED50ci95>=2))/length(ED50ci95))
+            pBAD=length(which(ED50ci95>=BAD_THRESHOLD))/length(ED50ci95))
 CI_step_plot=BIC_df %>%
   filter(Nt>3) %>%
   mutate(ED50ci95=ifelse(ED50ci95>10,10,ED50ci95),
          SIG_CI=CIpval<0.05) %>% 
   ggplot(aes(x=factor(Nt),y=ED50ci95))+
   geom_violin(aes(fill=factor(SIG_CI)),quantile.linetype = c(2,1,2))+
-  geom_jitter(width=.25,height=0,alpha=.1,pch=1)+
-  geom_text(y=0.00001,hjust=0,nudge_x = 0.3,
+  geom_jitter(width=.1,height=0,alpha=.1,size=1)+
+  geom_text(y=-2,hjust=0,nudge_x = 0.05,
             aes(label=paste0("CI95md: ",round(meded50ci,2),"\nPct Poor Fit = ",round(pBAD*100,1),"%")),data=stepmet)+
   theme_bw()+
   scale_fill_manual(name="Significant \nImprovement from\nPrevious Step",
-                    values=c("TRUE"="gold","FALSE"="darkred","NA"="gray50"),drop=F)+
+                    values=c("TRUE"="gold","FALSE"="darkred","NA"="gray75"),drop=F)+
   xlab("Number of Temperature Steps in ED50 Fit")+
   ylab("Goodness of Fit\n ED50 95% Confidence Interval")+
   ggtitle("Goodness of Fit Improves with More Temperature Steps\n70 Rounds of Rarefaction: ED50 Confidence Interval (lower implies better fit)")+
@@ -141,21 +145,50 @@ BIC_step_plot=BIC_df %>%
          SIG_BIC=BICpval<0.05) %>% 
   ggplot(aes(x=factor(Nt),y=BIC))+
   geom_violin(aes(fill=factor(SIG_BIC)),quantile.linetype = c(2,1,2))+
-  geom_jitter(width=.25,height=0,alpha=.1,pch=1)+
-  geom_text(y=0.00001,hjust=0,nudge_x = 0.35,
+  geom_jitter(width=.1,height=0,alpha=.1,size=.1)+
+  geom_text(y=-50,hjust=0,nudge_x = .05,
             aes(label=paste0("BICmd: ",round(medBIC,2))),data=stepmet)+
   theme_bw()+
   scale_fill_manual(name="Significant \nImprovement from\nPrevious Step",
-                    values=c("TRUE"="gold","FALSE"="darkred","NA"="gray50"),drop=F)+
+                    values=c("TRUE"="gold","FALSE"="darkred","NA"="gray75"),drop=F)+
   xlab("Number of Temperature Steps in ED50 Fit")+
   ylab("Goodness of Fit\nBayes Information Criterion")+
-  ggtitle("Goodness of Fit Improves with More Temperature Steps:\n70 Round of Rarefaction: BIC (lower implies better fit)");BIC_step_plot
+  ggtitle("Goodness of Fit Improves with More Temperature Steps:\n70 Rounds of Rarefaction: BIC (lower implies better fit)");BIC_step_plot
 
 library(patchwork)
 
 ABstepplot=CI_step_plot/BIC_step_plot;ABstepplot
-sc=1
+sc=1.5
 ggsave(plot = ABstepplot,filename = "./Plots/Rarefaction_StepPlots.jpg",width=sc*10.5,height=sc*8)
 
-BIC_df %>% filter(Nt>3) %>% ggplot(aes(x=RMS_ED50dT,y=BIC))+
-  geom_point()+xlim(c(0,6))+facet_wrap(factor(Nt)~.)
+BIC_df
+
+BIC_df %>% filter(Nt>3) %>% ggplot(aes(x=RMS_ED50dT,y=ED50ci95))+
+  geom_point()+xlim(c(0,6))+ylim(c(0,2))+facet_wrap(factor(Nt)~.)+stat_smooth(method = "gam")
+
+BIC_df_rare=BIC_df
+
+library(emmeans)
+library(lmerTest)
+
+CIWINDOW=.2#quantile(BIC_df$ED50ci95,.25,na.rm=T);CIWINDOW
+CIWINDOWs=c(seq(.1,1,by=.1),1.5,2,Inf)
+cidf=data.frame(CIw=CIWINDOWs,SpP=NA,delMN=NA);cnt=1
+for(CIWINDOW in CIWINDOWs){
+  ed50_test=BIC_df %>% filter(ED50ci95<CIWINDOW) %>% 
+    mutate(Site=substr(Genotype,6,8),Species=substr(Genotype,1,4)) %>% 
+    filter(Species%in%c("ICRA","AGLO")) 
+  nrow(ed50_test)
+  ciplot=ed50_test %>% 
+    ggplot(aes(x=Species,y=ED50,ymin=ED50-ED50ci95,ymax=ED50-ED50ci95,color=Species))+
+    geom_boxplot()+geom_jitter(width=.25,height=0)+ggtitle(CIWINDOW)
+  print(ciplot)
+  modtest=lmer(ED50~Species+(1|Site),data=ed50_test)
+  #odtest=lm(ED50~Species,data=ed50_test)
+  smod=summary(modtest)
+  Spmn=as.data.frame(emmeans(object = modtest,specs = ~ Species))
+  cidf$SpP[cnt]=smod$coefficients[2,5]
+  cidf$delMN[cnt]=diff(Spmn$emmean)
+  Sys.sleep(2);cnt=cnt+1
+}
+
