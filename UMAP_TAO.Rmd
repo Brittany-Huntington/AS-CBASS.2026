@@ -138,12 +138,30 @@ allphoto[,2:ncol(allphoto)] <- allphoto[,2:ncol(allphoto)] %>% mutate(across(eve
 photophys_scaled <- photophys_clean %>%
   scale() %>% # scaling with zscores instead 
   as.data.frame()
+
+#Sort out NAs in photophys_scaled data
+dim(photophys_scaled)
+NA_ij=which(is.na(photophys_scaled),arr.ind = T)
+NA_ic=sort(table(NA_ij[,1]),decreasing = T);NA_i#Every row has 102 NAs
+NA_jc=sort(table(NA_ij[,2]),decreasing = T);NA_j#There are 102 metrics that are full NA
+NA_j=as.numeric(names(NA_jc))
+NA_ppParams=names(photophys_scaled)[NA_j]
+
+#drop columns that end up NA in scaled data
+photophys_scaled.=photophys_scaled %>% dplyr::select(-all_of(NA_ppParams))
+dim(photophys_scaled.)
+photophys_clean.=photophys_clean %>% dplyr::select(-all_of(NA_ppParams))
+dim(photophys_scaled.)
+allphoto.=allphoto %>% dplyr::select(-all_of(NA_ppParams))
+dim(photophys_scaled.)
+ppParam=names(photophys_scaled.)
+
 ```
 
 #Incorporate ED50, and ID correlates
 ```{r}
 ed=read.csv(file = "./Data/AS26_ED50_CI_BIC_TAO.csv")
-allphoto.ed=allphoto %>% mutate(
+allphoto.ed=allphoto. %>% mutate(
   Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
   Colony =(str_extract(SampleID, "(?<=_).+?(?=\\.)")),
   Species =as.factor(str_to_upper(substr(Colony,1,4))),
@@ -157,6 +175,7 @@ allphoto.ed=allphoto %>% mutate(
 #colinearity test
 # 1. Calculate the full correlation matrix (highly optimized)
 # Use "pairwise.complete.obs" if you have NAs in your sensor data
+COLLINEAR_THRESHOLD=0.6
 cor_matrix <- cor(allphoto.ed[, ppParam], use = "pairwise.complete.obs")
 
 # 2. Flatten the matrix into a long-format table
@@ -169,15 +188,24 @@ cor_df <- data.frame(
   Correlation = cor_matrix[cor_tri]
 )
 
-to_remove <- caret::findCorrelation(cor_matrix, cutoff = 0.8, exact = TRUE)
+#to_remove <- caret::findCorrelation(cor_matrix, cutoff = 0.8, exact = TRUE)
+library(igraph)
+diag(cor_matrix) <- 0
+adj_matrix <- abs(cor_matrix) > COLLINEAR_THRESHOLD
+adj_matrix[is.na(adj_matrix)] <- FALSE # Handle any remaining NAs
 
-# 3. Create the "thinned" parameter list
-ppParam_thinned <- ppParam[-to_remove]
+# 3. Create a graph where nodes are sensors and edges are "high correlation"
+g <- graph_from_adjacency_matrix(adj_matrix, mode = "upper",diag=FALSE)
 
+# 4. Instant Thinning: Pick one representative per cluster
+# This is the fastest way to handle 3000+ variables
+clusters <- components(g)$membership
+ppParam_thinned <- ppParam[!duplicated(clusters)]
+
+cat("Reduced from", length(ppParam), "to", length(ppParam_thinned), "sensors.")
 # 4. Report results
 cat("Original count:", length(ppParam), "\n")
 cat("Thinned count: ", length(ppParam_thinned), "\n")
-cat("Removed:       ", length(to_remove), "\n")
 
 #Stability Selection with LASSO 
 #Meinshausen, N., & Bühlmann, P. (2010). Stability selection. Journal of the Royal Statistical Society Series B: Statistical Methodology, 72(4), 417-473.
@@ -192,15 +220,21 @@ X <- as.matrix(allphoto.ed[, ppParam_thinned])
 y <- allphoto.ed[["ED50"]]
 
 # Stability selection with LASSO base learner
+#WITHOUT COLINEARITY CONTROL ppParam #3907
 #cutoff = .75 and PFER = 1 returned no selected params
+#cutoff = .6 and PFER = 5 returned no selected params
+#WITH COLINEARITY CONTROL ppParam_thinned #184 cor threshold 0.7
+#cutoff = .6 and PFER = 5 stably returned 4 selected param:  "Connect.20.2"       "Connect.19.3"       "range.4.rSigma.L2"  "L12CompL32.qTau1.4"
 #cutoff = .75 and PFER = 1 returned no selected params
+
 
 stab_result <- stabsel(
   x = X,
   y = y,
-  fitfun = lm,
+  fitfun = glmnet.lasso,
   cutoff = 0.6,      # selection probability threshold
-  PFER = 5# per-family error rate bound
+  PFER = 5,# per-family error rate bound
+  B=1000
 )
 
 # View results
@@ -211,38 +245,62 @@ plot(stab_result)
 selected_vars <- names(stab_result$selected)
 cat("Selected variables:\n")
 print(selected_vars)
-################################################
 
-################################################
-#Tom's Janky LM run
-library(tidyverse)
-library(broom)
-ParamLM.DF=NULL
-bagfraction=.63 # same as full bootstrap. So why not bootstrap?
-Nrounds=5
-for (ri in 1:Nrounds){
-  allphoto.ed.bag=allphoto.ed[sample(1:nrow(allphoto.ed),size=floor(bagfraction*nrow(allphoto.ed))),]
-  ParamLM <- allphoto.ed.bag %>%
-    dplyr::select(all_of(c("ED50",ppParam))) %>% 
-    pivot_longer(cols = -ED50, names_to = "ppParam", values_to = "value") %>%
-    group_by(ppParam) %>%
-    do(tidy(lm(ED50 ~ value, data = .))) %>% 
-    filter(term=="value",!is.na(estimate))
+#highlight other variables:
+collinear_groups=setNames(vector("list", length(selected_vars)), selected_vars)
+for(i in 1:length(selected_vars)){
+  target=selected_vars[i]
+  target_correlations <- cor_matrix[, target]
   
-  ParamLM$p.value.fdr=p.adjust(ParamLM$p.value,method = "fdr")
-  ParamLM$p.value.bon=p.adjust(ParamLM$p.value,method = "bonferroni")
-  ParamLM$Round=ri
-  
-  ParamLM.DF=rbind(ParamLM.DF,ParamLM)
-  print(ri)
+  # 2. Filter for those above your threshold (e.g., 0.6)
+  # We exclude the target itself (where cor == 1)
+  col_i=which(abs(target_correlations) > COLLINEAR_THRESHOLD)
+  if(length(col_i)==0){collinear_group=NA}else{
+    collinear_group=names(target_correlations)[col_i]
+  }
+  collinear_groups[[i]]=collinear_group
 }
-alpha=0.05
-ppParam_4of5=ParamLM.DF %>% group_by(ppParam) %>% summarize(pSIG=sum(p.value<alpha)/length(p.value)) %>% 
-  filter(pSIG==.8) %>% pull(ppParam)
+print(selected_vars)
+print(collinear_groups)
 
-allphoto.ed %>% ggplot(aes(x=.data[[ppParam_4of5[sample(1:length(ppParam_4of5),1)]]],y=ED50))+geom_point()+stat_smooth(method="lm")
-allphoto.ed %>% ggplot(aes(x=.data[["L12CompR1.qqP.2"]],y=ED50))+geom_point()+stat_smooth(method="lm")
+ppParam_selected=selected_vars
+
+ggplot(allphoto.ed,aes(x=.data[[ppParam_selected[1]]],
+                    y=.data[[ppParam_selected[2]]],
+                    shape=Species,color=ED50))+scale_color_viridis_c()+
+  geom_point()
 ################################################
+
+# ################################################
+# #Tom's Janky LM run
+# library(tidyverse)
+# library(broom)
+# ParamLM.DF=NULL
+# bagfraction=.63 # same as full bootstrap. So why not bootstrap?
+# Nrounds=5
+# for (ri in 1:Nrounds){
+#   allphoto.ed.bag=allphoto.ed[sample(1:nrow(allphoto.ed),size=floor(bagfraction*nrow(allphoto.ed))),]
+#   ParamLM <- allphoto.ed.bag %>%
+#     dplyr::select(all_of(c("ED50",ppParam))) %>% 
+#     pivot_longer(cols = -ED50, names_to = "ppParam", values_to = "value") %>%
+#     group_by(ppParam) %>%
+#     do(tidy(lm(ED50 ~ value, data = .))) %>% 
+#     filter(term=="value",!is.na(estimate))
+#   
+#   ParamLM$p.value.fdr=p.adjust(ParamLM$p.value,method = "fdr")
+#   ParamLM$p.value.bon=p.adjust(ParamLM$p.value,method = "bonferroni")
+#   ParamLM$Round=ri
+#   
+#   ParamLM.DF=rbind(ParamLM.DF,ParamLM)
+#   print(ri)
+# }
+# alpha=0.05
+# ppParam_4of5=ParamLM.DF %>% group_by(ppParam) %>% summarize(pSIG=sum(p.value<alpha)/length(p.value)) %>% 
+#   filter(pSIG==.8) %>% pull(ppParam)
+# 
+# allphoto.ed %>% ggplot(aes(x=.data[[ppParam_4of5[sample(1:length(ppParam_4of5),1)]]],y=ED50))+geom_point()+stat_smooth(method="lm")
+# allphoto.ed %>% ggplot(aes(x=.data[["L12CompR1.qqP.2"]],y=ED50))+geom_point()+stat_smooth(method="lm")
+# ################################################
 
 ```
 
@@ -253,20 +311,15 @@ allphoto.ed %>% ggplot(aes(x=.data[["L12CompR1.qqP.2"]],y=ED50))+geom_point()+st
 neighbor_vals <- c(5, 10, 15, 20, 30, 50)
 min_dist_vals <- c(0.01, 0.05, 0.1, 0.2, 0.5)
 
-#Sort out NAs in photophys data
-dim(photophys_scaled)
-NA_ij=which(is.na(photophys_scaled),arr.ind = T)
-NA_i=sort(table(NA_ij[,1]),decreasing = T);NA_i#Every row has 102 NAs
-NA_j=sort(table(NA_ij[,2]),decreasing = T);NA_j#There are 102 metrics that are full NA
-photophys_scaled=photophys_scaled[,-as.numeric(names(NA_j))]
-photophys_scaled_4of5=photophys_scaled[,ppParam_4of5]
+photophys_scaled_thinned=photophys_scaled[,ppParam_thinned]
+photophys_scaled_selected=photophys_scaled[,ppParam_selected]
 
 umap_list <- lapply(neighbor_vals, function(n) {
-  fit <- umap(photophys_scaled, n_neighbors = n, min_dist = 0.1,)
+  fit <- umap(photophys_scaled_thinned, n_neighbors = n, min_dist = 0.1,)
   as.data.frame(fit$layout) %>%
     setNames(c("UMAP1", "UMAP2")) %>%
     mutate(n_neighbors = n,
-           SampleID= rownames(photophys_scaled),
+           SampleID= rownames(photophys_scaled_thinned),
            Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
            Colony =(str_extract(SampleID, "(?<=_).+?(?=\\.)")),
            Species =as.factor(str_to_upper(substr(Colony,1,4))),
