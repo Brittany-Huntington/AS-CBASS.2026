@@ -59,10 +59,11 @@ df_clean$Cluster_8 <- as.factor(df_clean$Cluster_8)
 #Make a boxplot showing ED by cluster
 ED_long %>%
   filter(ED_level == "ED50") %>%
+  mutate(Site = as.factor(Site))%>%
   mutate(Cluster_4 = as.factor(Cluster_4)) %>%
   ggplot(aes(x = Cluster_4, y = ED_value, fill = Cluster_4)) +
   geom_boxplot(outlier.shape = NA, alpha = 0.7) +
-  geom_jitter(width = 0.15, alpha = 0.6, size = 2) +
+  geom_jitter(width = 0.15, alpha = 0.6, size = 2, fill = Site) +
   facet_wrap(~Species, scales = "free_y") +
   theme_bw() +
   labs(
@@ -71,12 +72,47 @@ ED_long %>%
     title = "ED50 variation among phenotype clusters within species"
   )
 
-ggplot(df_clean, aes(x = Cluster_4, y = ED50, color = Cluster_4, fill = Cluster_4)) +
+ggplot(df_clean, aes(x = Cluster_8, y = ED50, color = Cluster_8, fill = Cluster_8)) +
   geom_jitter(alpha = 0.3, width = 0.15) +
   stat_summary(fun = mean, geom = "point", size = 3) +
   stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2) +
   facet_wrap("Species")+
    scale_color_viridis_d(option = "H") 
+
+#color by site
+cluster_cols <- c(
+  "1" = "#1b9e77",
+  "2" = "#d95f02",
+  "3" = "#7570b3",
+  "4" = "#e7298a",
+  "5" = "yellow",
+  "6" = "lightblue",
+  "7" = "grey",
+  "8" = "white"
+)
+
+ED_long %>%
+  filter(ED_level == "ED50", Species == "ICRA") %>%
+  mutate(
+    Site = as.factor(Site),
+    Cluster_8 = as.factor(Cluster_8)
+  ) %>%
+  ggplot(aes(x = Cluster_8, y = ED_value, fill = Cluster_8)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6, color = "black") +
+  geom_jitter(
+  aes(color = Site, shape = Site),
+  width = 0.15,
+  alpha = 0.7,
+  size = 2
+) +
+scale_shape_manual(values = c(16, 17, 15, 18, 3, 7, 8, 2))+
+  theme_bw() +
+  labs(
+    x = "Phenotype Cluster",
+    y = "ED50",
+    title = "ICRA: ED50 across phenotype clusters"
+  )+
+    scale_fill_manual(values = cluster_cols)
 
 ```
 
