@@ -142,10 +142,10 @@ photophys_scaled <- photophys_clean %>%
 #Sort out NAs in photophys_scaled data
 dim(photophys_scaled)
 NA_ij=which(is.na(photophys_scaled),arr.ind = T)
-NA_ic=sort(table(NA_ij[,1]),decreasing = T);NA_i#Every row has 102 NAs
-NA_jc=sort(table(NA_ij[,2]),decreasing = T);NA_j#There are 102 metrics that are full NA
+NA_ic=sort(table(NA_ij[,1]),decreasing = T);NA_ij#Every row has 102 NAs
+NA_jc=sort(table(NA_ij[,2]),decreasing = T);NA_jc#There are 102 metrics that are full NA
 NA_j=as.numeric(names(NA_jc))
-NA_ppParams=names(photophys_scaled)[NA_j]
+NA_ppParams=names(photophys_scaled)[NA_jc]
 
 #drop columns that end up NA in scaled data
 photophys_scaled.=photophys_scaled %>% dplyr::select(-all_of(NA_ppParams))
