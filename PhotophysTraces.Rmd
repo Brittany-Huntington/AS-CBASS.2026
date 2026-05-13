@@ -15,7 +15,8 @@ library(ggh4x)
 # Photophys data loading 
 
 ```{r photophys}
-photophys <- read.csv("Outputs/AS26_PhenotypingData_normalized.csv", row.names = 1)
+photophys <- read.csv("Data/AS26_PhenotypingData_normalized.csv", row.names = 1)
+cbb<- load("Data/cbb_AS26_expt_1000bs.RData")
 # cluster object from Dendrogram.Rmd is called cbb
 clusterer <- cbb
 longphoto_shortie <- photophys %>% 
