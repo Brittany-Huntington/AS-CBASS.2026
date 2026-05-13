@@ -10,28 +10,64 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(ggh4x)
+library(stringr)
 ```
 
 # Photophys data loading 
 
 ```{r photophys}
-photophys <- read.csv("Data/AS26_PhenotypingData_normalized.csv", row.names = 1)
-cbb<- load("Data/cbb_AS26_expt_1000bs.RData")
+photophys <- read.csv("Data/AS26_PhenotypingData_expt.csv", row.names = 1)
+load("Data/cbb_AS26_expt_1000bs.RData")
+sample_metadata <- read.csv(file = "Data/AS26_MAPPmetadata_expt.csv", check.names = F)
 # cluster object from Dendrogram.Rmd is called cbb
 clusterer <- cbb
-longphoto_shortie <- photophys %>% 
-  select(-c(uni, metrix)) %>% 
+
+
+longphoto_shortie <- photophys %>%
   pivot_longer(
-    cols = -c(metric,stage, col), # Selects all columns except "Metric"
+    cols = -c(uni, metric, metrix, stage, col),
     names_to = "SampleID",
     values_to = "Value"
-  ) 
-longphoto_shortie <- longphoto_shortie %>% 
-    dplyr::filter(!grepl('005', SampleID)) %>% 
+  )
+
+#remove  samples
+longphoto_shortie <- longphoto_shortie %>%
+  filter(
+    !(startsWith(SampleID, "t7") & 
+      grepl("icra|ahya", SampleID, ignore.case = TRUE) & 
+      endsWith(SampleID, "005r.processed.csv")),
+    
+    !(startsWith(SampleID, "t7") & 
+      grepl("aglo|aabr", SampleID, ignore.case = TRUE) & 
+      endsWith(SampleID, "002r.processed.csv"))
+  )
+
+longphoto_shortie <- longphoto_shortie %>%
+  mutate(
+    SampleID_clean = SampleID %>%
+      tolower() %>%
+      str_remove("\\.processed\\.csv$"),
+      
+    base = str_extract(SampleID_clean, "^[a-z]+_?[a-z]+\\d+"),
+    num  = str_extract(SampleID_clean, "\\d+$")
+  )
+
+longphoto_shortie <- longphoto_shortie %>%
+  mutate(
+    SampleID_fixed = paste0(
+      str_replace(base, "(\\D)(\\d+)$", "\\1_\\2")
+    )
+  )
+
+longphoto_shortie <- longphoto_shortie %>%
+  filter(SampleID_clean %in% sample_metadata$UniqueID)
+
+longphoto_shortie <- longphoto_shortie %>%
   pivot_wider(
     names_from = metric,
     values_from = Value
   )
+
 longphoto_shortie <- longphoto_shortie[,1:17]
 ```
 
@@ -39,7 +75,7 @@ longphoto_shortie <- longphoto_shortie[,1:17]
 ```{r}
 # Assuming 'hc' is your hclust object and 'df' is your original data
 # 1. Cut the tree into 4 clusters
-clusters <- cutree(cbb, k = 6)
+clusters <- cutree(cbb, k = 4)
 
 # 2. Add the cluster assignments to your original dataframe
 df_with_clusters <- cbind(longphoto_shortie, Cluster = clusters)
