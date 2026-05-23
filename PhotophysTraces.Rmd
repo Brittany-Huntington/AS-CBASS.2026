@@ -11,6 +11,8 @@ library(tidyr)
 library(ggplot2)
 library(ggh4x)
 library(stringr)
+library(pvclust)
+library(dendextend)
 ```
 
 # Photophys data loading 
@@ -46,18 +48,26 @@ longphoto_shortie <- longphoto_shortie %>%
   mutate(
     SampleID_clean = SampleID %>%
       tolower() %>%
-      str_remove("\\.processed\\.csv$"),
-      
-    base = str_extract(SampleID_clean, "^[a-z]+_?[a-z]+\\d+"),
-    num  = str_extract(SampleID_clean, "\\d+$")
+      str_remove("\\.processed\\.csv$") %>%
+      str_remove("\\.\\d+r$")
   )
 
-longphoto_shortie <- longphoto_shortie %>%
-  mutate(
-    SampleID_fixed = paste0(
-      str_replace(base, "(\\D)(\\d+)$", "\\1_\\2")
-    )
-  )
+# longphoto_shortie <- longphoto_shortie %>%
+#   mutate(
+#     SampleID_clean = SampleID %>%
+#       tolower() %>%
+#       str_remove("\\.processed\\.csv$"),
+#       
+#     base = str_extract(SampleID_clean, "^[a-z]+_?[a-z]+\\d+"),
+#     num  = str_extract(SampleID_clean, "\\d+$")
+#   )
+# 
+# longphoto_shortie <- longphoto_shortie %>%
+#   mutate(
+#     SampleID_fixed = paste0(
+#       str_replace(base, "(\\D)(\\d+)$", "\\1_\\2")
+#     )
+#   )
 
 longphoto_shortie <- longphoto_shortie %>%
   filter(SampleID_clean %in% sample_metadata$UniqueID)
@@ -75,14 +85,15 @@ longphoto_shortie <- longphoto_shortie[,1:17]
 ```{r}
 # Assuming 'hc' is your hclust object and 'df' is your original data
 # 1. Cut the tree into 4 clusters
-clusters <- cutree(cbb, k = 4)
+#clusters <- cutree(cbb, k = 8)
+clusters <- cutree(cbb$hclust, k = 8) #specify hclust is what we want from cbb here
 
 # 2. Add the cluster assignments to your original dataframe
 df_with_clusters <- cbind(longphoto_shortie, Cluster = clusters)
 
 # 3. Pull out samples belonging to Cluster 1
 cluster_1_samples <- df_with_clusters %>% dplyr::filter(Cluster == 1) %>% 
-  distinct(SampleID)
+  distinct(SampleID_clean)
 
 # 4. View the result
 print(cluster_1_samples)
@@ -95,12 +106,26 @@ sum_photo <- df_with_clusters %>%
   group_by(stage, col, Cluster) %>%
     summarise(across(where(is.numeric), mean, na.rm = TRUE ))
 
-sum_photo_long <- sum_photo %>% 
-   pivot_longer(
-    cols = -c(stage, col, Cluster), # Selects all columns except "Metric"
+metric_cols <- c(
+  "Quant", "Sigma", "Connect",
+  "Tau1", "Tau2", "NPQ",
+  "qP", "ABQ", "qm",
+  "nTau1", "nTau2"
+)
+
+sum_photo_long <- sum_photo %>%
+  pivot_longer(
+    cols = all_of(metric_cols),
     names_to = "Metric",
     values_to = "Value"
-  ) 
+  )
+
+# sum_photo_long <- sum_photo %>% 
+#    pivot_longer(
+#     cols = -c(stage, col, Cluster), # Selects all columns except "Metric"
+#     names_to = "Metric",
+#     values_to = "Value"
+#   ) 
 
 # 1. Empirically 'pick' the significant clusters
 # alpha = 0.95 corresponds to the 95% confidence level
@@ -114,6 +139,8 @@ print(signif_clusters$edges)
 ```
 # Plotting traces
 ```{r}
+
+# individual coral trajectories
 sub_photo <- sum_photo_long %>% 
   dplyr::filter(Metric != 'nTau1' & Metric !=  'nTau2' & Metric != 'nCon'& Metric != 'Fm' & Metric != 'Fo' & col != 'All' & col != 'Ratio12' & col != 'Ratio32' & col != 'Ratio42') %>% 
   dplyr::mutate(stage = as.numeric(as.character(stage))) %>% 
@@ -124,29 +151,85 @@ sub_photo <- sum_photo_long %>%
 # This pulls the unique colors used for the clusters in order
 extract_cols <- unique(get_leaves_branches_col(dend))
 
-cluster_cols <- c("1" = "#CC476B", "2" = "#9F7000", "3" = "#228B00", "4" = "#009681", "5" = "#0082CE","6" = "#B646C7")
+cluster_cols <- c("1" = "#CC476B", "2" = "#9F7000", "3" = "#228B00", "4" = "#009681", "5" = "#0082CE","6" = "#B646C7", "7"= "blue", "8"= "black")
 # 3. Create a clean lookup table for your ggplot
 
 ggplot(sub_photo) + 
   geom_line(aes(x = stage, y = Value, group = interaction(col, Cluster), colour = col)) + 
   facet_grid(Metric ~ Cluster, scales = "free_y") +
   theme_minimal() 
-ggsave(plot = last_plot(), filename = "Figures/Photophys_tracesbycluster.jpeg")
+ggsave(plot = last_plot(), filename = "Plots/Photophys_tracesbycluster.jpeg")
 ```
 
 ```{r}
-sum_quant <- df_with_clusters %>%  
+#mean trace per cluster/treatment/stage plots ONE averaged line per group.
+
+# sum_quant <- df_with_clusters %>%  
+#   pivot_longer(
+#     cols = -c(stage, col, Cluster, SampleID), # Selects all columns except "Metric"
+#     names_to = "Metric",
+#     values_to = "Value"
+#   )  this didnt work bc metrics are already seperate cols. 
+
+
+
+
+# sum_quant <- sum_quant %>% 
+#   dplyr::filter(Metric == "Quant") 
+# ggplot(sum_quant) + 
+#   geom_line(aes(x = stage, y = Value, group = interaction(col, SampleID), colour = col)) + 
+#   facet_grid( col ~ Cluster, scales = "free_y") +
+#   theme_minimal() 
+
+sum_quant <- df_with_clusters %>%
   pivot_longer(
-    cols = -c(stage, col, Cluster, SampleID), # Selects all columns except "Metric"
+    cols = c(Quant, Sigma, Connect, Tau1, Tau2, NPQ, qP, ABQ, qm),
     names_to = "Metric",
     values_to = "Value"
-  ) 
-sum_quant <- sum_quant %>% 
-  dplyr::filter(Metric == "Quant") 
+  )
+sum_quant <- sum_quant %>%
+  filter(Metric == "Quant")
+
 ggplot(sum_quant) + 
-  geom_line(aes(x = stage, y = Value, group = interaction(col, SampleID), colour = col)) + 
-  facet_grid( col ~ Cluster, scales = "free_y") +
-  theme_minimal() 
-ggsave(plot = last_plot(), filename = "Figures/Photophys_tracesbycluster.jpeg")
+  geom_line(aes(
+    x = stage,
+    y = Value,
+    group = interaction(col, SampleID_clean),
+    colour = col
+  )) + 
+  facet_grid(col ~ Cluster, scales = "free_y") +
+  theme_minimal()
+
+#trying this instead. just plotting quant anyway
+
+metric_cols <- c(
+  "Quant", "Sigma", "Connect", "Tau1", "Tau2",
+  "NPQ", "qP", "ABQ", "qm",
+  "nTau1", "nTau2", "nCon",
+  "Fm", "Fo"
+)
+
+sum_quant <- df_with_clusters %>%
+  pivot_longer(
+    cols = all_of(metric_cols),
+    names_to = "Metric",
+    values_to = "Value"
+  )
+
+df_with_clusters <- df_with_clusters %>%
+  select(
+    -SampleID
+  )
+
+ggplot(df_with_clusters) + 
+  geom_line(aes(
+    x = stage,
+    y = Quant,
+    group = interaction(col, SampleID_clean),
+    colour = col
+  )) + 
+  facet_grid(col ~ Cluster, scales = "free_y") +
+  theme_minimal()
+ggsave(plot = last_plot(), filename = "Plots/Photophys_tracesbycluster.jpeg")
 ```
 
