@@ -86,7 +86,7 @@ longphoto_shortie <- longphoto_shortie[,1:17]
 # Assuming 'hc' is your hclust object and 'df' is your original data
 # 1. Cut the tree into 4 clusters
 #clusters <- cutree(cbb, k = 8)
-clusters <- cutree(cbb$hclust, k = 8) #specify hclust is what we want from cbb here
+clusters <- cutree(cbb$hclust, k = 5) #specify hclust is what we want from cbb here
 
 # 2. Add the cluster assignments to your original dataframe
 df_with_clusters <- cbind(longphoto_shortie, Cluster = clusters)
@@ -149,7 +149,7 @@ sub_photo <- sum_photo_long %>%
 
 # 2. Extract the branch colors assigned by color_branches
 # This pulls the unique colors used for the clusters in order
-extract_cols <- unique(get_leaves_branches_col(dend))
+#extract_cols <- unique(get_leaves_branches_col(dend))
 
 cluster_cols <- c("1" = "#CC476B", "2" = "#9F7000", "3" = "#228B00", "4" = "#009681", "5" = "#0082CE","6" = "#B646C7", "7"= "blue", "8"= "black")
 # 3. Create a clean lookup table for your ggplot
@@ -158,7 +158,7 @@ ggplot(sub_photo) +
   geom_line(aes(x = stage, y = Value, group = interaction(col, Cluster), colour = col)) + 
   facet_grid(Metric ~ Cluster, scales = "free_y") +
   theme_minimal() 
-ggsave(plot = last_plot(), filename = "Plots/Photophys_tracesbycluster.jpeg")
+ggsave(plot = last_plot(), filename = "Plots/Photophys_tracesbycluster_k5.jpeg")
 ```
 
 ```{r}
