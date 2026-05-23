@@ -22,9 +22,6 @@ rm(list = ls())
 file_path <-here("Data")
   cbass<-read.csv("Data/full_cbass_dataset.csv")
   
-#removing sus samples that the cluster analysis show are likely mos-labeled (6 samples total)
-  to_remove <- c("3_AGLO_3", "4_AGLO_7", "9_AABR_1", "11_ICRA_8", "11_ICRA_5", "11_ICRA_10")
-df_clean <- cbass %>% filter(!GroupingProperty %in% to_remove)
 
 #long format
 ED_long <- df_clean %>%
