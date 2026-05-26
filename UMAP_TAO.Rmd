@@ -73,7 +73,7 @@ photo_proc <- photo_proc[,-nearZeroVar(photo_proc)] # remove any columns with lo
 photo_proc <- photo_proc %>%
   dplyr::select(where(~ sum(is.na(.)) == 0))
 
-photo_umapresult<-umap(photo_proc, n_neighbors= 15, min_dist= 0.1, metric="euclidean", n_components=2) # these parameters can change quite a bit-- worth looking up to figure out what to set them at for your data specifically 
+photo_umapresult<-umap(photo_proc, n_neighbors= 15, min_dist= 0.8, metric="euclidean", n_components=2) # these parameters can change quite a bit-- worth looking up to figure out what to set them at for your data specifically 
 plot(as.numeric(photo_umapresult$layout[,1]), as.numeric(photo_umapresult$layout[,2]), pch=19, cex=0.9, axes=T)
 
 
