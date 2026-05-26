@@ -314,6 +314,14 @@ min_dist_vals <- c(0.01, 0.05, 0.1, 0.2, 0.5)
 photophys_scaled_thinned=photophys_scaled[,ppParam_thinned]
 photophys_scaled_selected=photophys_scaled[,ppParam_selected]
 
+# remove columns containing any NA/NaN
+photophys_scaled_thinned <- photophys_scaled_thinned %>%
+  dplyr::select(where(~ all(is.finite(.))))
+
+# remove zero variance columns
+photophys_scaled_thinned <- photophys_scaled_thinned %>%
+  dplyr::select(where(~ sd(., na.rm = TRUE) > 0))
+
 umap_list <- lapply(neighbor_vals, function(n) {
   fit <- umap(photophys_scaled_thinned, n_neighbors = n, min_dist = 0.1,)
   as.data.frame(fit$layout) %>%
@@ -323,6 +331,7 @@ umap_list <- lapply(neighbor_vals, function(n) {
            Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
            Colony =(str_extract(SampleID, "(?<=_).+?(?=\\.)")),
            Species =as.factor(str_to_upper(substr(Colony,1,4))),
+           ColonyNum = as.numeric(str_extract(Colony, "\\d+") ),
            Genotype=paste0(str_to_upper(Species),
                            "_s",formatC(Site,flag=0,width=2),
                            "_c",formatC(as.numeric(substr(Colony,5,6)),flag=0,width=2)))
