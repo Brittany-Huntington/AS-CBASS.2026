@@ -15,22 +15,24 @@ library(broom)
 library(lme4)
 library(car)
 library(corrplot)
-library(Hmisc )
+library(Hmisc) 
+library(here)
 rm(list = ls())
 
 #calculating ED50 for all datasets and combining with metadata
 #read in metadata
+here()
 file_path <-here("Data")
-  cbass_metadata<-read_xlsx("Data/ESA_CBASS_metadata.xlsx")
+  cbass_metadata<-read_xlsx(here("Data", "ESA_CBASS_metadata.xlsx"))
 
-EDsdf<-read.csv("Data/EDsdf-all.csv")
+EDsdf<-read.csv(here("Data", "EDsdf-all.csv"))
 #read in all site files
 files <- list.files(here("Data"), pattern = "PAM\\.csv$", full.names = TRUE)
 
 
 
 #read in MAPP cluster df and fix sample ID names/cols
-bloop_cluster<- read.csv("Data/expt_data_clustered.csv")
+bloop_cluster<- read.csv(here("Data", "expt_data_clustered.csv"))
 bloop_cluster <- bloop_cluster %>%
   mutate(
     clean = SampleID_clean %>%
@@ -94,7 +96,7 @@ cbass_dataset <-  cbass_dataset %>%
     Cluster_7,
     Cluster_8)
 
-write.csv(cbass_dataset, file = "Data/full_cbass_dataset.csv")
+write.csv(cbass_dataset, here("Data", "full_cbass_dataset.csv"), row.names = FALSE)
 
 #long format
 ED_long <- cbass_dataset %>%

@@ -57,11 +57,11 @@ eds_df <-
   distinct()
 
 head(eds_df)
-write.csv(
-  eds_df,
-  paste0(output_prefix, "_EDsdf.csv"),
-  row.names = FALSE
-)
+# write.csv(
+#   eds_df,
+#   paste0(output_prefix, "_EDsdf.csv"),
+#   row.names = FALSE
+# )
 
 
 ####Plotting-------------------------
