@@ -7,20 +7,20 @@ library(rstudioapi)
 library(RColorBrewer)
 library(CBASSED50) #Voolstra R package
 library(lme4)
+library(here)
 
 
 rm(list = ls())
-setwd("C:/github/CBASS/AS-CBASS.2026")
 #####Load raw CBASS run data-----------------------------
+S1 <- read.csv(here("Data", "RAW_ESA-001_20260214_PAM.csv"))
+S3 <- read.csv(here("Data", "RAW_ESA-003_20260219_PAM.csv"))
+S4 <- read.csv(here("Data", "RAW_ESA-004_20260220_PAM.csv"))
+S5 <- read.csv(here("Data", "RAW_ESA-005_20260223_PAM.csv"))
+S7 <- read.csv(here("Data", "RAW_ESA-007_20260213_PAM.csv"))
+S9 <- read.csv(here("Data", "RAW_ESA-009_20260216_PAM.csv"))
+S10 <- read.csv(here("Data", "RAW_ESA-010_20260217_PAM.csv"))
+S11 <- read.csv(here("Data", "RAW_ESA-011_20260210_PAM.csv"))
 
-S1 <- read_csv("Data/RAW_ESA-001_20260214_PAM.csv")
-S3 <- read_csv("Data/RAW_ESA-003_20260219_PAM.csv")
-S4 <- read_csv("Data/RAW_ESA-004_20260220_PAM.csv")
-S5 <- read_csv("Data/RAW_ESA-005_20260223_PAM.csv")
-S7 <- read_csv("Data/RAW_ESA-007_20260213_PAM.csv")
-S9 <- read_csv("Data/RAW_ESA-009_20260216_PAM.csv")
-S10 <- read_csv("Data/RAW_ESA-010_20260217_PAM.csv")
-S11 <- read_csv("Data/RAW_ESA-011_20260210_PAM.csv")
 
 dat <- bind_rows(S1,S3, S4, S5, S7, S9, S10, S11)
 dat <- dat %>% mutate(across(where(is.character), as.factor))
@@ -101,7 +101,7 @@ eds_all <- bind_rows(lapply(names(temp_sets), function(name){
 )
 
 #save combined dataset
-write.csv(eds_all,"Data/EDsdf_all_ramps.csv", row.names = FALSE)
+write.csv(eds_all, here ("Data", "EDsdf_all_ramps.csv"), row.names = FALSE)
 
 
 #run model comparing ED50 estimate among temp ramp designs------------------------------
@@ -146,8 +146,8 @@ g1 <- ggplot(eds_clean, aes(x = Dataset, y = ED50, fill = Species)) +
   theme(legend.position = "none")
 
 g1
-ggsave("C:/github/CBASS/AS-CBASS.2026/Plots/ED50 Comparisons Across Temp Ramps.jpeg", g1, 
-       width = 10, height = 6,  dpi = 300 )     
+ggsave(filename = here ("Plots", "ED50 Comparisons Across Temp Ramps.jpeg"), plot = g1, 
+       width = 10, height = 6,  dpi = 300 )  
 
 
 
@@ -190,5 +190,5 @@ g2 <- ggplot(dat_shared, aes(x = Dataset, y = ED50, fill = Species)) +
   theme(legend.position = "none")
 
 g2
-ggsave("C:/github/CBASS/AS-CBASS.2026/Plots/ED50 Comparisons Across Temp Ramps--paired sites.jpeg", g2, 
+ggsave(filename = here ("Plots", "ED50 Comparisons Across Temp Ramps--paired sites.jpeg"), plot = g2, 
   width = 10, height = 6, dpi = 300)

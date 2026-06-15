@@ -15,7 +15,8 @@ rm(list = ls())
 #####Load and Prep Data-----------------------------
 # Get the input file path; click on which site file you want to work with
 input_data_path <- selectFile(
-  caption = "C:/github/CBASS/AS-CBASS.2026/Data")
+  caption = as.character(here("Data"))
+)
 
 # Read data based on file format
 cbass_dataset <- read_data(input_data_path)
@@ -24,7 +25,7 @@ View(cbass_dataset)
 
 # To specify the prefix for output files
 output_prefix <- tools::file_path_sans_ext(input_data_path)
-output_plot <- "C:/github/CBASS/AS-CBASS.2026/Plots"
+output_plot <- here("Plots")
 
 rlog::log_info(paste("Your current directory is", getwd()))
 rlog::log_info(paste("Your input filename is", basename(input_data_path)))
@@ -56,9 +57,11 @@ eds_df <-
   distinct()
 
 head(eds_df)
-write.csv(eds_df,
-          paste(output_prefix, "EDsdf.csv", sep = '_'),
-          row.names = FALSE)
+write.csv(
+  eds_df,
+  paste0(output_prefix, "_EDsdf.csv"),
+  row.names = FALSE
+)
 
 
 ####Plotting-------------------------
@@ -79,8 +82,13 @@ eds_boxplot <- eds_df %>% ggplot(
 
 eds_boxplot
 #update site name
-save_path <- file.path(output_plot, "Site-001_ED50.pdf")
-ggsave(save_path, eds_boxplot,  width = 16, height = 9, device = "pdf")
+# ggsave(
+#   here("Plots", "Site-001_ED50.pdf"),
+#   eds_boxplot,
+#   width = 16,
+#   height = 9,
+#   device = "pdf"
+# )
 
 
 exploratory_curve <- ggplot(data = cbass_dataset,
@@ -101,8 +109,8 @@ exploratory_curve <- ggplot(data = cbass_dataset,
 
 exploratory_curve
 #update site name
-save_path <- file.path(output_plot, "Site-011_exploratory_curve.pdf")
-ggsave(save_path, exploratory_curve,  width = 16, height = 9, device = "pdf")
+# save_path <- file.path(output_plot, "Site-011_exploratory_curve.pdf")
+# ggsave(save_path, exploratory_curve,  width = 16, height = 9, device = "pdf")
 
 
 
@@ -200,5 +208,5 @@ tempresp_curve <- ggplot(result_df,
 
 tempresp_curve
 #update site name
-save_path <- file.path(output_plot, "Site-011_tempresp_curve.pdf")
-ggsave(save_path, tempresp_curve,  width = 16, height = 9, device = "pdf")
+# save_path <- file.path(output_plot, "Site-011_tempresp_curve.pdf")
+# ggsave(save_path, tempresp_curve,  width = 16, height = 9, device = "pdf")
