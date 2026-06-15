@@ -18,11 +18,11 @@ library(performance)
 
 
 rm(list = ls())
-setwd("C:/github/CBASS/AS-CBASS.2026")
+
 #####Load and Prep Data-----------------------------
 
-EDdf <- read_csv("Data/EDsdf_all_ramps.csv") %>% 
-  filter(Dataset =="All")%>%
+EDdf <- read.csv(here("Data", "EDsdf_all_ramps.csv")) %>%
+  filter(Dataset == "All") %>%
   mutate(across(where(is.character), as.factor))
 
 #add decline width
@@ -200,8 +200,8 @@ g2 <- ggplot(ED_long, aes(x = Species, y = ED_value)) +
 g2
 
 
-ggsave("C:/github/CBASS/AS-CBASS.2026/Plots/All_sites_boxplot.pdf", g1,  width = 16, height = 9, device = "pdf")
-ggsave("C:/github/CBASS/AS-CBASS.2026/Plots/All_sites_points&means.pdf", g2,  width = 16, height = 9, device = "pdf")
+#ggsave(filename = here ("Plots", "All_sites_boxplot.pdf"), plot = g1,  width = 16, height = 9, device = "pdf")
+ggsave(filename = here ("Plots", "All_sites_points&means.pdf"), plot = g2,  width = 16, height = 9, device = "pdf")
 
 
 #ED50 plot only------
@@ -231,7 +231,7 @@ g3 <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
                 width = 0.2,
                 size = 1,
                 inherit.aes = FALSE) +
-  geom_text(data = ED50_summary2,
+  geom_text(data = ED50_summary,
             aes(x = Species,
                 y = Mean + SE + 0.1,
                 label = .group),
@@ -254,7 +254,8 @@ g3 <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
 
 g3
 
-ggsave("C:/github/CBASS/AS-CBASS.2026/Plots/ED50_post-hocs.pdf", g3,  width = 16, height = 9, device = "pdf")
+
+ggsave(filename = here ("Plots", "ED50_post-hocs.pdf"), plot = g3,  width = 16, height = 9, device = "pdf")
 
 
 #Q1B.  How important are site level differences to our ESA taxa?---------------------------
