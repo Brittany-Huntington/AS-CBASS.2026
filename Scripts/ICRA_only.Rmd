@@ -20,7 +20,7 @@ library(Hmisc )
 rm(list = ls())
 
 file_path <-here("Data")
-  cbass_dataset<-read.csv("Data/full_cbass_dataset.csv")
+  cbass_dataset<-read.csv(here("Data", "full_cbass_dataset.csv"))
   
 #subset ICRA
 ICRA<- cbass_dataset %>%
