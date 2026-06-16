@@ -28,6 +28,14 @@ EDdf <- read.csv(here("Data", "EDsdf_all_ramps.csv")) %>%
 #add decline width
 EDdf <- EDdf %>% mutate(DW = ED95 - ED5)
 
+#supplemental table 
+write.csv(
+  EDdf,
+  paste0("ED_Supplemental_table.csv"),
+  row.names = FALSE
+)
+
+
 #long format 
 ED_long <- EDdf %>%
   pivot_longer(
@@ -132,11 +140,11 @@ qqline(resid(m_ED95))
 
 ####plotting----------------------------------
 
-
 #summary stats; mean + SE
 ED_summary <- ED_long %>%
   group_by(Species, ED_level) %>%
   summarise(
+    n = n(),
     Mean = mean(ED_value),
     SE = sd(ED_value) / sqrt(n()),
     .groups = "drop")
@@ -166,22 +174,26 @@ g1 <- ggplot(ED_long, aes(x = Species, y = ED_value, fill = Species)) +
 
 g1
 
-#Mean ± SE plot
+#Mean 
 g2 <- ggplot(ED_long, aes(x = Species, y = ED_value)) +
-  geom_jitter(aes(color = Species),width = 0.15, alpha = 0.4, size = 1, show.legend = FALSE) +
-  geom_point(data = ED_summary,
-             aes(x = Species, y = Mean, color = Species),
-             size = 4,
-             inherit.aes = FALSE) +
+geom_jitter(aes(color = Species),width = 0.15, alpha = 0.4, size = 1, show.legend = FALSE) +
   
-  geom_errorbar(data = ED_summary,
-                aes(x = Species,
-                    ymin = Mean - SE,
-                    ymax = Mean + SE,
-                    color = Species),
-                width = 0.2,
-                size = 0.8,
-                inherit.aes = FALSE) +
+  
+  # geom_errorbar(data = ED_summary,
+  #               aes(x = Species,
+  #                   ymin = Mean - SE,
+  #                   ymax = Mean + SE,
+  #                   color = Species),
+  #               width = 0.2,
+  #               size = 0.8,
+  #               inherit.aes = FALSE) +
+  geom_point(data = ED_summary,
+             aes(x = Species, y = Mean, fill = Species),
+             shape = 21,
+             color = "black",
+             size = 2,
+             stroke = 0.8,
+             inherit.aes = FALSE) +
   
   facet_wrap(~ ED_level, scales = "free_y") +
   theme_classic(base_size = 14) +
@@ -193,8 +205,8 @@ g2 <- ggplot(ED_long, aes(x = Species, y = ED_value)) +
   labs(
     x = "Species",
     y = expression(paste("Temperature (", degree, "C)")),
-    title = "CBASS-Derived Thermal Thresholds",
-    subtitle = "American Samoa"
+    #title = "CBASS-Derived Thermal Thresholds",
+    #subtitle = "American Samoa"
   )
 
 g2
@@ -204,7 +216,7 @@ g2
 ggsave(filename = here ("Plots", "All_sites_points&means.pdf"), plot = g2,  width = 16, height = 9, device = "pdf")
 
 
-#ED50 plot only------
+#ED50 only mean +/- SE plot ------
 
 ED50_summary <- ED_summary %>% filter(ED_level == "ED50")
 
