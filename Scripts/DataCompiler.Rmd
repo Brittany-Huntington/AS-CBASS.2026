@@ -47,6 +47,7 @@ library(tidyverse)
 library(tidyr)
 library(igraph)
 library(fs)
+library(here)
 #library(DescTools)
 
 
@@ -93,20 +94,27 @@ movingAverage <- function(x, n=1, centered=FALSE)
 # Loading Metadata 
 ```{r load metadata}
 # Read the mapping file
-sample_metadata <- read.csv( "data/ESA_coral_data_entry_2026 - Collections.csv", check.names = F)
+sample_metadata <- read.csv(here("Data", "ESA_coral_data_entry_2026-Collections.csv"), check.names = F)
 sample_metadata$Site <- substr(sample_metadata$Site, nchar(sample_metadata$Site)-1, nchar(sample_metadata$Site))
 sample_metadata$Site <- as.integer(sample_metadata$Site)
 sample_metadata<- sample_metadata[,-15]
 
-mapplist <- read.csv("data/MAPP_Metadata - Sheet1.csv", check.names = F)
+mapplist <- read.csv(here("Data", "MAPP_Metadata-Sheet1.csv"), check.names = F)
 colnames(sample_metadata)[13] <- 'Bag_number'
 metadata <- sample_metadata %>% full_join(mapplist)
 
-metadata <- metadata %>% dplyr::filter(!(is.na(Sophie)))
-colnames(metadata)[21] <- 'CoralID'
-metadata$CoralID <- tolower(metadata$CoralID)
-write.csv(metadata, file = "Outputs/AS26_MAPPmetadata.csv", row.names = F)
-sample_metadata <- read.csv( "Outputs/AS26_MAPPmetadata.csv")
+#metadata <- metadata %>% dplyr::filter(!(is.na(Sophie)))
+metadata <- metadata %>%
+  dplyr::filter(`CBASS / Sophie` == "CBASS") #only analyze data here from experiment
+sample_metadata <- metadata %>%
+  mutate(
+    UniqueID = paste0('t', Site, "_", Species, Genotype),
+    UniqueID = tolower(trimws(UniqueID))
+  )
+
+colnames(sample_metadata)[21] <- 'CoralID'
+sample_metadata$CoralID <- tolower(sample_metadata$CoralID)
+write.csv(sample_metadata,  here ("Data", "AS26_MAPPmetadata.csv"), row.names = F)
 
 sample_metadata <- sample_metadata %>%
   mutate(UniqueID = case_when(
@@ -121,10 +129,14 @@ sample_metadata <- sample_metadata %>%
 ###### compiling all photophys to one csv ################# 
 # Set the directory containing your data files
 #data_dir <- 'Data/alldatacomparison/All_Phenotyping_Data/Processed/'
-data_dir <- 'data/all'
+data_dir <- here("Data/phenotyping_data/normalized")
 
 # Get a list of all files in the directory
-file_list <- list.files(path = data_dir, full.names = TRUE)
+#file_list <- list.files(path = data_dir, full.names = TRUE)
+file_list <- list.files(
+  path = data_dir,
+  full.names = TRUE,
+  pattern = "^[^aoiAOI]" ) #excluding the duplicated files here and the OCC ones. only want CBASS at this time
 
 # Initialize an empty list to store data frames
 photophys <- list()
@@ -136,14 +148,19 @@ mapplist <- list()
 for (file in file_list) {
   # Read the file 
   data <- read.csv(file)
-  base_sample_id <- substr(path_file(file), 1, nchar(path_file(file)) - 18)
+  #base_sample_id <- substr(path_file(file), 1, nchar(path_file(file)) - 18)
+  base_sample_id <- path_file(file) %>%
+  sub("\\.csv$", "", .) %>%        # remove file extension
+  sub("\\._\\d+r$", "", .) %>%     # remove ._02r, ._05r etc
+  tolower() %>%
+  trimws()
   mapp_no <- substr(path_file(file), nchar(path_file(file)) - 16, nchar(path_file(file)) - 14)
 # CREATE A UNIQUE KEY (e.g., "Sample123_M01")
-  unique_key <- paste0(base_sample_id, "_", mapp_no)
-
+  #unique_key <- paste0(base_sample_id, "_", mapp_no)
+unique_key <- paste0(base_sample_id)
   # Store using the unique key
   photophys[[unique_key]] <- data[, 7]
-  mapplist[[unique_key]] <- mapp_no
+  #mapplist[[unique_key]] <- mapp_no
 }
 
 # Convert mapp_list to a dataframe as you did before
@@ -152,6 +169,7 @@ mapplist_df <- data.frame(
   mapp_no = as.numeric(unlist(mapplist)),
   # Use regex to pull the original CoralID back out if needed
   UniqueID = sub("_[^_]+$", "", names(mapplist)), 
+ # UniqueID = names(mapplist),
   stringsAsFactors = FALSE
 )
 # mapplist_df <- mapplist_df %>% 
