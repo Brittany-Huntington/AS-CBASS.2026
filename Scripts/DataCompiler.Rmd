@@ -23,6 +23,7 @@ test
 
 ### Load Packages
 ```{r, echo=F, include=F}
+rm(list = ls())
 ##Install Packages if Needed
 if (!require("ggplot2")) install.packages("ggplot2")
 if (!require("dplyr")) install.packages("dplyr")
@@ -210,7 +211,7 @@ for (folder in folders) {
     
     # Initialize metadata columns only once using the very first file found
     if (!metadata_initialized) {
-      photophys_external <- dat[, 1:5]
+      photophys_external <- dat[, 1:6]
       metadata_initialized <- TRUE
     }
     
@@ -230,7 +231,30 @@ photophys_external <- as.data.frame(photophys_external)
 dim(photophys_external)
  head(colnames(photophys_external))
 
+#rename
+ ref_cols <- setdiff(
+  names(photophys_external),
+  c("uni", "metric", "metrix", "stage", "col")
+)
+ 
+ # 2. Rename only the sample columns with the "REF_" prefix
+names(photophys_external)[names(photophys_external) %in% ref_cols] <- paste0("REF_", ref_cols)
 
+# 3. Check if 'col' actually exists before trying to merge
+if (!"col" %in% names(photophys_external)) {
+  stop("Stop! 'photophys_external' is still missing the 'col' column. Check your data loading step.")
+}
+
+# 4. Use left_join instead of cbind for a bulletproof merge
+# This uses the metadata columns as keys to perfectly align rows
+photophys_combined <- left_join(
+  photophys,
+  photophys_external,
+  by = c("uni", "metric", "metrix", "stage", "col")
+)
+
+# Verify the result
+dim(photophys_combined)
 ```
 
 
