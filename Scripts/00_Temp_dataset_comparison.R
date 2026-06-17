@@ -7,6 +7,7 @@ library(rstudioapi)
 library(RColorBrewer)
 library(CBASSED50) #Voolstra R package
 library(lme4)
+library(lmerTest)
 library(here)
 
 
@@ -86,7 +87,7 @@ process_cbass_dataset <- function(dat, temps, dataset_name){
   
   # keep relevant columns
   eds_df <- eds %>%
-    select(ED5,ED50,ED95,Site,Species,Genotype) %>%
+    select(ED5,ED50,ED95, Site,Species,Genotype) %>%
     mutate(Dataset = dataset_name)
   
   return(eds_df)
@@ -192,3 +193,48 @@ g2 <- ggplot(dat_shared, aes(x = Dataset, y = ED50, fill = Species)) +
 g2
 ggsave(filename = here ("Plots", "ED50 Comparisons Across Temp Ramps--paired sites.jpeg"), plot = g2, 
   width = 10, height = 6, dpi = 300)
+
+
+####SUPPLEMENTAL ANALYSIS: TESTING THE PRECISION HYPOTHESIS---------------
+
+#Calculate the standard deviation (spread) of ED50 within each Site/Species group
+precision_dat <- dat_shared %>%
+  group_by(Site, Species, Dataset) %>%
+  summarise(
+    sd_ED50 = sd(ED50, na.rm = TRUE),
+    n_colonies = n(),
+    .groups = "drop"
+  )
+
+#Run a paired mixed model to test if the 8-tank design reduces within-group variance
+mod_precision <- lmer(log(sd_ED50) ~ Dataset * Species + (1 | Site), data = precision_dat)
+anova(mod_precision)
+
+
+# 3. Generate the Supplemental Precision Plot
+g_precision <- ggplot(precision_dat, aes(x = Dataset, y = sd_ED50, fill = Species)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.35) +
+  geom_jitter(aes(color = Species), width = 0.1, size = 2.5, alpha = 0.8) +
+  facet_wrap(~ Species) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Experimental Design",
+    y = expression(paste("Within-Site Standard Deviation of ", ED[50], " (°C)")),
+    title = "Precision Comparison: Classic vs. Refined Ramp Designs",
+    subtitle = "Lower SD indicates a tighter, more precise fit around population thresholds"
+  ) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    legend.position = "none"
+  )
+
+g_precision
+
+# 4. Save the plot using here()
+ggsave(
+  filename = here("Plots", "Supplemental_ED50_Design_Precision.jpeg"), 
+  plot = g_precision, 
+  width = 10, 
+  height = 6, 
+  dpi = 300
+)
