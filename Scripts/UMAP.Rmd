@@ -50,7 +50,7 @@ photophys <- read.csv("Outputs/AS26_PhenotypingData.csv", row.names = 1)
 
 ```{r photophys umap setup }
 ######### set up photophys dataframe ######## 
-longphoto <- as.data.frame(t(photophys))
+longphoto <- as.data.frame(t(photophys_combined))
 colnames(longphoto) <- longphoto[1,] 
 longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
 longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
@@ -62,7 +62,7 @@ fullyears <- data.frame(fullyears[, colSums(is.na(fullyears)) == 0])
 allphoto <- fullyears %>% dplyr::select(-contains('Fo'), -contains('Fm'))
 rownames(allphoto) <- allphoto$SampleID
 photophys_clean <- allphoto %>% 
-   dplyr::select(-c(Ramet, CoralID, Timepoint, SampleID)) # remove non-numeric columns 
+   dplyr::select(-c(SampleID)) # remove non-numeric columns 
 
 
 photo.transit <- preProcess(x = photophys_clean, rangeBounds = c(0, 1), method = "range") # need to scale data 
@@ -71,7 +71,10 @@ photo_proc <- photo_proc[,-nearZeroVar(photo_proc)] # remove any columns with lo
 photo_proc <- photo_proc %>%
     dplyr::select(where(~ sum(is.na(.)) == 0))
 
-photo_umapresult<-umap(photo_proc, n_neighbors= 15, min_dist= 0.1, metric="euclidean", n_components=2) # these parameters can change quite a bit-- worth looking up to figure out what to set them at for your data specifically 
+photo_proc <- as.data.frame(photo_proc) %>%
+  dplyr::select(where(is.numeric))
+
+photo_umapresult<-umap(photo_proc, n_neighbors= 4, min_dist= 0.3, metric="euclidean", n_components=2) # these parameters can change quite a bit-- worth looking up to figure out what to set them at for your data specifically 
 plot(as.numeric(photo_umapresult$layout[,1]), as.numeric(photo_umapresult$layout[,2]), pch=19, cex=0.9, axes=T)
 
 

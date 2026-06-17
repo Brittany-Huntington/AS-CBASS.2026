@@ -51,7 +51,7 @@ photophys <- read.csv("./Data/AS26_PhenotypingData_expt.csv", row.names = 1)
 
 ```{r photophys umap setup }
 ######### set up photophys dataframe ######## 
-longphoto <- as.data.frame(t(photophys))
+longphoto <- as.data.frame(t(photophys_combined))
 colnames(longphoto) <- longphoto[1,] 
 longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
 longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
@@ -78,43 +78,148 @@ plot(as.numeric(photo_umapresult$layout[,1]), as.numeric(photo_umapresult$layout
 
 
 ##### linking metadata to umap points ###### 
-
-
-# --- Prep the Data for Lines and Points ---
 umap_plotting_data <- data.frame(
-  UMAP1 = photo_umapresult$layout[,1], 
-  UMAP2 = photo_umapresult$layout[,2], 
-  SampleID = allphoto$SampleID,
-  Site = as.numeric(str_extract(allphoto$SampleID, "(?<=t)\\d+(?=_)")), 
-  Colony =(str_extract(allphoto$SampleID, "(?<=_).+?(?=\\.)")))
-umap_plotting_data=umap_plotting_data %>% 
-  mutate(Species =as.factor(str_to_upper(substr(Colony,1,4))),
-         Genotype=paste0(str_to_upper(Species),
-                         "_s",formatC(Site,flag=0,width=2),
-                         "_c",formatC(substr(Colony,5,99),flag=0,width=2)))
+  UMAP1    = photo_umapresult$layout[,1], 
+  UMAP2    = photo_umapresult$layout[,2], 
+  SampleID = allphoto$SampleID
+) %>%
+  mutate(
+    # Isolate Fiji vs Tutuila upfront for cleaner logic
+    is_fiji = str_detect(SampleID, "lpv|bpv|bad|nah"),
+    
+    # Identify Species cleanly
+    Species = case_when(
+      str_detect(SampleID, "nah")  ~ "AD_C",
+      str_detect(SampleID, "bad")  ~ "AH_C",
+      str_detect(SampleID, "lad")  ~ "AH_C",
+      str_detect(SampleID, "lpv") ~ "PVER_D",
+      str_detect(SampleID, "bpv") ~ "PVER_D",
+      TRUE                           ~ str_to_upper(substr(str_extract(SampleID, "(?<=_).+?(?=\\.)"), 1, 4))
+    ),
+    
+    # Create a clean plotting label: Use numeric Site for Tut, or "FJ" / Species short-code for Fiji
+    PlotLabel = case_when(
+      is_fiji ~ "F", 
+      TRUE    ~ str_extract(SampleID, "(?<=t)\\d+(?=_)")
+    ),
+    
+    # Build Genotype string without triggering formatC coercion warnings
+    Genotype = case_when(
+      is_fiji ~ paste0(Species, "_", str_extract(SampleID, "[^.]+")),
+      TRUE    ~ {
+        # This block only executes calculations safely for your original Tut samples
+        tut_colony <- str_extract(SampleID, "(?<=_).+?(?=\\.)")
+        tut_site   <- as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)"))
+        tut_num    <- as.numeric(str_extract(tut_colony, "\\d+$")) # Extracts trailing numbers safely
+        
+        paste0(Species,
+               "_s", formatC(tut_site, flag = "0", width = 2),
+               "_c", formatC(tut_num, flag = "0", width = 2))
+      }
+    )
+  )
 
-# --- Plotting Code: Spp specific plots ---
 ggplot(umap_plotting_data, aes(x = UMAP1, y = UMAP2)) +
-  # 2. Plot the points (Start and End Locations)
-  geom_text(aes(label=Site, color=Species),
-            size = 3,
+  # Use PlotLabel so Fiji ("FJ") and Tutuila (Sites) both render
+  geom_text(aes(label = PlotLabel, color = Species),
+            size = 3.5,
+            fontface = "bold",
             alpha = 0.8) +
   
+  # Customizing scales if you want clear separation of colors
+  scale_color_brewer(palette = "Set1") + 
+  
   labs(title = "Photophysiology UMAP",
+       subtitle = "Fiji (F) and Tutuila (Site #) Samples",
        x = "UMAP Dimension 1",
-       y = "UMAP Dimension 2") +
+       y = "UMAP Dimension 2",
+       color = "Species") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    legend.position = "right"
+  )
+
+#old
+# umap_plotting_data <- data.frame(
+#   UMAP1 = photo_umapresult$layout[,1], 
+#   UMAP2 = photo_umapresult$layout[,2], 
+#   SampleID = allphoto$SampleID,
+#   Site = as.numeric(str_extract(allphoto$SampleID, "(?<=t)\\d+(?=_)")), 
+#   Colony =(str_extract(allphoto$SampleID, "(?<=_).+?(?=\\.)")))
+# umap_plotting_data=umap_plotting_data %>% 
+#   mutate(Species =as.factor(str_to_upper(substr(Colony,1,4))),
+#          Genotype=paste0(str_to_upper(Species),
+#                          "_s",formatC(Site,flag=0,width=2),
+#                          "_c",formatC(substr(Colony,5,99),flag=0,width=2)))
+# 
+# # --- Plotting Code: Spp specific plots ---
+# ggplot(umap_plotting_data, aes(x = UMAP1, y = UMAP2)) +
+#   # 2. Plot the points (Start and End Locations)
+#   geom_text(aes(label=Site, color=Species),
+#             size = 3,
+#             alpha = 0.8) +
+#   
+#   labs(title = "Photophysiology UMAP",
+#        x = "UMAP Dimension 1",
+#        y = "UMAP Dimension 2") +
+#   theme_minimal()
+# #write.csv(umap_results$layout, "Final_UMAP_Coords.csv")
+# #ggsave(filename = 'Figures/UMAP/trajectory_photophys_splitbyspp_coloredbygeno_chull.png', plot = last_plot(), width = 7.5, height = 7.5, units = "in")
+# 
+
+```
+```{r}
+#fiji only
+# Subset down to just Fiji numeric data
+fiji_only <- umap_plotting_data %>% 
+  filter(is_fiji == TRUE)
+
+# Run UMAP completely independently, lowering n_neighbors
+fiji_umap <- umap(photo_proc[rownames(photo_proc) %in% fiji_only$SampleID, ], 
+                  n_neighbors = 5, 
+                  min_dist = 0.1)
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+
+# 1. Convert the raw UMAP list output into a plottable dataframe
+fiji_plotting_data <- data.frame(
+  UMAP1    = fiji_umap$layout[,1],
+  UMAP2    = fiji_umap$layout[,2],
+  SampleID = row.names(fiji_umap$layout)
+) %>%
+  mutate(
+    # 2. Re-apply your working acronym-matching logic
+    Species = case_when(
+      str_detect(SampleID, "nah") ~ "AD_C",
+      str_detect(SampleID, "bad") ~ "AH_C",
+      str_detect(SampleID, "lad") ~ "AH_C",
+      str_detect(SampleID, "lpv") ~ "PVER_D",
+      str_detect(SampleID, "bpv") ~ "PVER_D",
+      TRUE                        ~ "Unknown"
+    )
+  )
+
+# 3. Create the plot using your new data frame
+ggplot(fiji_plotting_data, aes(x = UMAP1, y = UMAP2, color = Species)) +
+  # Using geom_point here since Fiji samples don't use numeric 'Site' labels
+  geom_point(size = 3, alpha = 0.8) +
+  labs(
+    title = "Isolated Fiji Photophysiology UMAP",
+    subtitle = "Scaled exclusively to Fiji variance",
+    x = "UMAP Dimension 1",
+    y = "UMAP Dimension 2"
+  ) +
   theme_minimal()
-#write.csv(umap_results$layout, "Final_UMAP_Coords.csv")
-#ggsave(filename = 'Figures/UMAP/trajectory_photophys_splitbyspp_coloredbygeno_chull.png', plot = last_plot(), width = 7.5, height = 7.5, units = "in")
-
-
 ```
 
 # NEW UMAP CODE 
 ### Load Data and scale 
 ```{r}
 set.seed(123)
-longphoto <- as.data.frame(t(photophys))
+longphoto <- as.data.frame(t(photophys_combined))
 colnames(longphoto) <- longphoto[1,] 
 longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
 longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
@@ -160,7 +265,7 @@ ppParam=names(photophys_scaled.)
 
 #Incorporate ED50, and ID correlates
 ```{r}
-ed=read.csv(file = "./Data/AS26_ED50_CI_BIC_TAO.csv")
+ed=read.csv(file = "Data/AS26_ED50_CI_BIC_TAO.csv")
 allphoto.ed=allphoto. %>% mutate(
   Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
   Colony =(str_extract(SampleID, "(?<=_).+?(?=\\.)")),
@@ -176,7 +281,7 @@ allphoto.ed=allphoto. %>% mutate(
 # 1. Calculate the full correlation matrix (highly optimized)
 # Use "pairwise.complete.obs" if you have NAs in your sensor data
 COLLINEAR_THRESHOLD=0.6
-cor_matrix <- cor(allphoto.ed[, ppParam], use = "pairwise.complete.obs")
+cor_matrix <- cor(allphoto.[, ppParam], use = "pairwise.complete.obs")
 
 # 2. Flatten the matrix into a long-format table
 # We use lower.tri to avoid duplicate pairs (A-B and B-A) and self-correlation (A-A)
@@ -216,8 +321,8 @@ library(stabs)
 library(glmnet)
 
 # Prepare model matrix (no intercept, glmnet handles it)
-X <- as.matrix(allphoto.ed[, ppParam_thinned])
-y <- allphoto.ed[["ED50"]]
+X <- as.matrix(allphoto.[, ppParam_thinned])
+y <- allphoto.[["ED50"]]
 
 # Stability selection with LASSO base learner
 #WITHOUT COLINEARITY CONTROL ppParam #3907
@@ -306,186 +411,183 @@ ggplot(allphoto.ed,aes(x=.data[[ppParam_selected[1]]],
 
 ### evalulating parameters and clustering 
 ```{r}
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(umap)
+library(dbscan)
+library(mclust)
 
-# Test range of n_neighbors values
-neighbor_vals <- c(5, 10, 15, 20, 30, 50)
-min_dist_vals <- c(0.01, 0.05, 0.1, 0.2, 0.5)
+# --- [Data Cleaning Step] ---
+photophys_scaled_thinned <- photophys_scaled[, ppParam_thinned]
+photophys_scaled_selected <- photophys_scaled[, ppParam_selected]
 
-photophys_scaled_thinned=photophys_scaled[,ppParam_thinned]
-photophys_scaled_selected=photophys_scaled[,ppParam_selected]
-
-# remove columns containing any NA/NaN
+# Remove columns containing any NA/NaN
 photophys_scaled_thinned <- photophys_scaled_thinned %>%
   dplyr::select(where(~ all(is.finite(.))))
 
-# remove zero variance columns
+# Remove zero variance columns
 photophys_scaled_thinned <- photophys_scaled_thinned %>%
   dplyr::select(where(~ sd(., na.rm = TRUE) > 0))
 
+
+# --- [Loop 1: Thinned Parameters] ---
 umap_list <- lapply(neighbor_vals, function(n) {
-  fit <- umap(photophys_scaled_thinned, n_neighbors = n, min_dist = 0.1,)
+  fit <- umap(photophys_scaled_thinned, n_neighbors = n, min_dist = 0.1)
+  
   as.data.frame(fit$layout) %>%
     setNames(c("UMAP1", "UMAP2")) %>%
-    mutate(n_neighbors = n,
-           SampleID= rownames(photophys_scaled_thinned),
-           Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
-           Colony =(str_extract(SampleID, "(?<=_).+?(?=\\.)")),
-           Species =as.factor(str_to_upper(substr(Colony,1,4))),
-           ColonyNum = as.numeric(str_extract(Colony, "\\d+") ),
-           Genotype=paste0(str_to_upper(Species),
-                           "_s",formatC(Site,flag=0,width=2),
-                           "_c",formatC(as.numeric(substr(Colony,5,6)),flag=0,width=2)))
+    mutate(
+      n_neighbors = n,
+      SampleID    = rownames(photophys_scaled_thinned),
+      
+      # Unified Fiji grouping logic
+      is_fiji = str_detect(SampleID, "lpv|bpv|bad|lad|nah"),
+      
+      # Map species safely across both datasets
+      Species = case_when(
+        str_detect(SampleID, "nah")     ~ "AD_C",
+        str_detect(SampleID, "bad|lad") ~ "AH_C",
+        str_detect(SampleID, "lpv|bpv") ~ "PVER_D",
+        TRUE                            ~ str_to_upper(substr(str_extract(SampleID, "(?<=_).+?(?=\\.)"), 1, 4))
+      ),
+      
+      # Safely compute Site and Genotype
+      Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
+      Genotype = case_when(
+        is_fiji ~ paste0(Species, "_", str_extract(SampleID, "[^.]+")),
+        TRUE    ~ {
+          tut_colony <- str_extract(SampleID, "(?<=_).+?(?=\\.)")
+          tut_num    <- as.numeric(str_extract(tut_colony, "\\d+$"))
+          paste0(Species,
+                 "_s", formatC(Site, flag = "0", width = 2),
+                 "_c", formatC(tut_num, flag = "0", width = 2))
+        }
+      )
+    )
 })
 
+
+# --- [Loop 2: 4-of-5 Parameters] ---
 umap_list_4of5 <- lapply(neighbor_vals, function(n) {
-  fit <- umap(photophys_scaled_4of5, n_neighbors = n, min_dist = 0.1,)
+  fit <- umap(photophys_scaled_4of5, n_neighbors = n, min_dist = 0.1)
+  
   as.data.frame(fit$layout) %>%
     setNames(c("UMAP1", "UMAP2")) %>%
-    mutate(n_neighbors = n,
-           SampleID= rownames(photophys_scaled),
-           Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
-           Colony =(str_extract(SampleID, "(?<=_).+?(?=\\.)")),
-           Species =as.factor(str_to_upper(substr(Colony,1,4))),
-           Genotype=paste0(str_to_upper(Species),
-                           "_s",formatC(Site,flag=0,width=2),
-                           "_c",formatC(as.numeric(substr(Colony,5,6)),flag=0,width=2)))
+    mutate(
+      n_neighbors = n,
+      SampleID    = rownames(photophys_scaled_4of5), # Fixed referencing error here
+      
+      is_fiji = str_detect(SampleID, "lpv|bpv|bad|lad|nah"),
+      
+      Species = case_when(
+        str_detect(SampleID, "nah")     ~ "AD_C",
+        str_detect(SampleID, "bad|lad") ~ "AH_C",
+        str_detect(SampleID, "lpv|bpv") ~ "PVER_D",
+        TRUE                            ~ str_to_upper(substr(str_extract(SampleID, "(?<=_).+?(?=\\.)"), 1, 4))
+      ),
+      
+      Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
+      Genotype = case_when(
+        is_fiji ~ paste0(Species, "_", str_extract(SampleID, "[^.]+")),
+        TRUE    ~ {
+          tut_colony <- str_extract(SampleID, "(?<=_).+?(?=\\.)")
+          tut_num    <- as.numeric(str_extract(tut_colony, "\\d+$"))
+          paste0(Species,
+                 "_s", formatC(Site, flag = "0", width = 2),
+                 "_c", formatC(tut_num, flag = "0", width = 2))
+        }
+      )
+    )
 })
 
-# Plot all versions for visual comparison
+
+# --- [Plotting Code Execution] ---
+
+# Visual comparison: Thinned
 bind_rows(umap_list) %>%
   ggplot(aes(x = UMAP1, y = UMAP2, color = Species)) +
   geom_point(size = 2, alpha = 0.8) +
   facet_wrap(~n_neighbors, labeller = label_both, scales = "free") +
   theme_classic() +
-  labs(title = "UMAP stability across n_neighbors values")
+  labs(title = "UMAP stability across n_neighbors values (Thinned)")
 
-# Plot all versions for visual comparison
+# Visual comparison: 4 of 5
 bind_rows(umap_list_4of5) %>%
   ggplot(aes(x = UMAP1, y = UMAP2, color = Species)) +
   geom_point(size = 2, alpha = 0.8) +
   facet_wrap(~n_neighbors, labeller = label_both, scales = "free") +
   theme_classic() +
-  labs(title = "UMAP stability across n_neighbors values")
+  labs(title = "UMAP stability across n_neighbors values (4of5)")
 
-# Testing stability of parameter selection: Fit UMAP twice at each neighbor value with different seeds and compare cluster assignments
-library(dbscan)
-library(mclust)
+
+# --- [Stability Assessments (No Changes Required Here)] ---
+
 stability_results <- lapply(neighbor_vals, function(n) {
-  
-  fit1 <- umap(photophys_scaled, n_neighbors = n, 
-               min_dist = 0.1, random_state = 42)
-  fit2 <- umap(photophys_scaled, n_neighbors = n, 
-               min_dist = 0.1, random_state = 123)
-  
-  # Cluster both with DBSCAN -- objective clustering method, can change minPts and eps settings (will test eps settings later)
+  fit1 <- umap(photophys_scaled, n_neighbors = n, min_dist = 0.1, random_state = 42)
+  fit2 <- umap(photophys_scaled, n_neighbors = n, min_dist = 0.1, random_state = 123)
   db1 <- dbscan(fit1$layout, eps = 0.5, minPts = 5)$cluster
   db2 <- dbscan(fit2$layout, eps = 0.5, minPts = 5)$cluster
-  
-  data.frame(
-    n_neighbors = n,
-    ARI = adjustedRandIndex(db1, db2)
-  )
-}) %>%
-  bind_rows()
+  data.frame(n_neighbors = n, ARI = adjustedRandIndex(db1, db2))
+}) %>% bind_rows()
 
 stability_results_4of5 <- lapply(neighbor_vals, function(n) {
-  
-  fit1 <- umap(photophys_scaled_4of5, n_neighbors = n, 
-               min_dist = 0.1, random_state = 42)
-  fit2 <- umap(photophys_scaled_4of5, n_neighbors = n, 
-               min_dist = 0.1, random_state = 123)
-  
-  # Cluster both with DBSCAN -- objective clustering method, can change minPts and eps settings (will test eps settings later)
+  fit1 <- umap(photophys_scaled_4of5, n_neighbors = n, min_dist = 0.1, random_state = 42)
+  fit2 <- umap(photophys_scaled_4of5, n_neighbors = n, min_dist = 0.1, random_state = 123)
   db1 <- dbscan(fit1$layout, eps = 0.5, minPts = 5)$cluster
   db2 <- dbscan(fit2$layout, eps = 0.5, minPts = 5)$cluster
-  
-  data.frame(
-    n_neighbors = n,
-    ARI = adjustedRandIndex(db1, db2)
-  )
-}) %>%
-  bind_rows()
+  data.frame(n_neighbors = n, ARI = adjustedRandIndex(db1, db2))
+}) %>% bind_rows()
 
-# Plot stability vs n_neighbors
+# Plot line chart stability
 ggplot(stability_results_4of5, aes(x = n_neighbors, y = ARI)) +
   geom_line() +
   geom_point(size = 3) +
   geom_hline(yintercept = 0.8, linetype = "dashed", color = "red") +
   theme_classic() +
-  labs(title = "UMAP cluster stability vs n_neighbors",
-       x = "n_neighbors", y = "Adjusted Rand Index")
-## choose the smallest n_neighbors value where ARI > 0.8
-#For all params, it says 10, or 30 (more stable)
-#For 4of5 params, it says 15
+  labs(title = "UMAP cluster stability vs n_neighbors", x = "n_neighbors", y = "Adjusted Rand Index")
 
-stability_grid <- expand.grid(
-  n_neighbors = neighbor_vals,
-  min_dist = min_dist_vals
-) %>%
+
+# --- [Grid Searches] ---
+
+stability_grid <- expand.grid(n_neighbors = neighbor_vals, min_dist = min_dist_vals) %>%
   rowwise() %>%
   mutate(ARI = {
-    fit1 <- umap(photophys_scaled, n_neighbors = n_neighbors,
-                 min_dist = min_dist, random_state = 42)
-    fit2 <- umap(photophys_scaled, n_neighbors = n_neighbors,
-                 min_dist = min_dist, random_state = 123)
-    
+    fit1 <- umap(photophys_scaled, n_neighbors = n_neighbors, min_dist = min_dist, random_state = 42)
+    fit2 <- umap(photophys_scaled, n_neighbors = n_neighbors, min_dist = min_dist, random_state = 123)
     db1 <- dbscan(fit1$layout, eps = 0.5, minPts = 5)$cluster
     db2 <- dbscan(fit2$layout, eps = 0.5, minPts = 5)$cluster
-    
     adjustedRandIndex(db1, db2)
   })
 
-stability_grid_4of5 <- expand.grid(
-  n_neighbors = neighbor_vals,
-  min_dist = min_dist_vals
-) %>%
+stability_grid_4of5 <- expand.grid(n_neighbors = neighbor_vals, min_dist = min_dist_vals) %>%
   rowwise() %>%
   mutate(ARI = {
-    fit1 <- umap(photophys_scaled_4of5, n_neighbors = n_neighbors,
-                 min_dist = min_dist, random_state = 42)
-    fit2 <- umap(photophys_scaled_4of5, n_neighbors = n_neighbors,
-                 min_dist = min_dist, random_state = 123)
-    
+    fit1 <- umap(photophys_scaled_4of5, n_neighbors = n_neighbors, min_dist = min_dist, random_state = 42)
+    fit2 <- umap(photophys_scaled_4of5, n_neighbors = n_neighbors, min_dist = min_dist, random_state = 123)
     db1 <- dbscan(fit1$layout, eps = 0.5, minPts = 5)$cluster
     db2 <- dbscan(fit2$layout, eps = 0.5, minPts = 5)$cluster
-    
     adjustedRandIndex(db1, db2)
   })
 
-# Visualize as heatmap
-ggplot(stability_grid_4of5, aes(x = factor(n_neighbors), 
-                                y = factor(min_dist), 
-                                fill = ARI)) +
+# Visualize Grid Search Heatmap
+ggplot(stability_grid_4of5, aes(x = factor(n_neighbors), y = factor(min_dist), fill = ARI)) +
   geom_tile(color = "white") +
   geom_text(aes(label = round(ARI, 2)), size = 3) +
-  scale_fill_gradient2(low = "white", mid = "lightyellow",
-                       high = "darkgreen", midpoint = 0.6) +
+  scale_fill_gradient2(low = "white", mid = "lightyellow", high = "darkgreen", midpoint = 0.6) +
   theme_classic() +
-  labs(title = "UMAP stability grid search",
-       x = "n_neighbors", y = "min_dist")
-#This says 0.1,30 for all
-# and .01,10 OR .05,50 for _4of5
+  labs(title = "UMAP stability grid search (4of5)", x = "n_neighbors", y = "min_dist")
 
-## tuning eps to umap scale 
-# Find optimal eps using k-nearest neighbor distance plot
+
+# --- [Final DBSCAN Cluster Evaluation Setup] ---
+# Note: Ensure `umap_fit` and `umap_coords` variables exist before executing this block
 knn_dist <- kNNdist(umap_fit$layout, k = 5)
-plot(sort(knn_dist), type = "l",
-     xlab = "Points sorted by distance",
-     ylab = "5-NN distance",
-     main = "k-NN distance plot for eps selection") ## optimal value is elbow 
-# Run DBSCAN with chosen eps
-db <- dbscan(umap_fit$layout, 
-             eps = 0.5,      # replace with your elbow value
-             minPts = 5)     # minimum cluster size
+plot(sort(knn_dist), type = "l", xlab = "Points sorted by distance", ylab = "5-NN distance", main = "k-NN distance plot for eps selection")
 
-umap_coords <- umap_coords %>%
-  mutate(Cluster = as.factor(db$cluster))
-# Remember cluster 0 = noise points
+db <- dbscan(umap_fit$layout, eps = 0.5, minPts = 5)
+umap_coords <- umap_coords %>% mutate(Cluster = as.factor(db$cluster))
 
-# Plot
-ggplot(umap_coords, aes(x = UMAP1, y = UMAP2, 
-                        color = Cluster, 
-                        shape = Species)) +
+ggplot(umap_coords, aes(x = UMAP1, y = UMAP2, color = Cluster, shape = Species)) +
   geom_point(size = 3, alpha = 0.8) +
   theme_classic() +
   labs(title = "UMAP with DBSCAN clusters")
