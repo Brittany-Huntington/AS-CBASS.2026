@@ -176,494 +176,66 @@ mapplist_df <- data.frame(
 #   mutate( CoralID = sub("^[^_]+_([^_]+)", "\\1", SampleID))
 sample_metadata <- sample_metadata %>% full_join(mapplist_df, by = 'UniqueID') 
 
-write.csv(photophys, file = "Outputs/AS26_PhenotypingData.csv", row.names = TRUE)
-photophys <- read.csv("Outputs/AS26_PhenotypingData.csv")
+#write.csv(photophys, file = "Outputs/AS26_PhenotypingData.csv", row.names = TRUE)
+#photophys <- read.csv("Outputs/AS26_PhenotypingData.csv")
+```
+
+
+```{r compiling processed pheno}
+#this is written by gemini
+#now read in the reference photophys from Fiji
+
+
+folders <- c(
+  here("Data", "phenotyping_data", "fiji", "ad_c"),
+  here("Data", "phenotyping_data", "fiji", "ah_c"),
+  here("Data", "phenotyping_data", "fiji", "pver_d")
+)
+
+# Initialize an empty list to store data frames temporarily
+df_list <- list()
+metadata_initialized <- FALSE
+photophys_external <- data.frame()
+
+# 2. Wrap the file processing inside a loop that iterates through your folders
+for (folder in folders) {
+  
+  # Get full paths to the CSV files in this specific folder
+  files <- list.files(folder, pattern = "\\.csv$", full.names = TRUE, ignore.case = TRUE)
+  
+  cat(basename(folder), ":", length(files), "files\n")
+  
+  for (file in files) {
+    dat <- read.csv(file)
+    
+    # Initialize metadata columns only once using the very first file found
+    if (!metadata_initialized) {
+      photophys_external <- dat[, 1:5]
+      metadata_initialized <- TRUE
+    }
+    
+    # Extract the sample name to use as the column header
+    sample_name <- tools::file_path_sans_ext(basename(file))
+    
+    # Append the 6th column to our dataframe
+    photophys_external[[sample_name]] <- dat[, 6]
+  }
+}
+
+# Check the final dimensions
+print(dim(photophys_external))
+
+photophys_external <- as.data.frame(photophys_external)
+
+dim(photophys_external)
+ head(colnames(photophys_external))
+
+
+```
+
+
+```{r compiling processed pheno}
 write.csv(sample_metadata, file = "Outputs/AS26_MAPPmetadata.csv", row.names = TRUE)
 sample_metadata <- read.csv("Outputs/AS26_MAPPmetadata.csv", row.names = 1)
-```
-# Depth Gradient Phenotyping
-### Load and Compile Processed Phenotype Data
-```{r compiling processed depth}
-###### compiling all photophys to one csv ################# 
-# Set the directory containing your data files
-#data_dir <- 'Data/alldatacomparison/All_Phenotyping_Data/Processed/'
-data_dir <- 'data/depthgradient/Phenotyping/shallow/Processed'
-mapper <- read.csv('data/depthgradient/02242026Collections.csv')
-mapper$UniqueID <- tolower(mapper$Label)
-mapper$CoralID <- paste0(mapper$Species, mapper$Genotype)
-# Get a list of all files in the directory
-file_list <- list.files(path = data_dir, full.names = TRUE)
-
-# Initialize an empty list to store data frames
-photophys <- list()
-data <- read.csv(file_list[1])
-photophys <- data[,2:6]
-mapplist <- list()
-
-# Loop through each file, read it, and store it in the list
-for (file in file_list) {
-  # Read the file 
-  data <- read.csv(file)
-  base_sample_id <- substr(path_file(file), 9, nchar(path_file(file)) - 18)
-  mapp_no <- substr(path_file(file), nchar(path_file(file)) - 16, nchar(path_file(file)) - 14)
-  base_sampler <- mapper$CoralID[mapper$UniqueID == base_sample_id]
-# CREATE A UNIQUE KEY (e.g., "Sample123_M01")
-  unique_key <- paste0(base_sampler, "_shallow")
-
-  # Store using the unique key
-  photophys[[unique_key]] <- data[, 7]
-  mapplist[[unique_key]] <- mapp_no
-}
-
-# Convert mapp_list to a dataframe as you did before
-mapplist_df <- data.frame(
-  SampleID = names(mapplist),
-  mapp_no = as.numeric(unlist(mapplist)),
-  # Use regex to pull the original CoralID back out if needed
-  CoralID = sub("_[^_]+$", "", names(mapplist)), 
-  stringsAsFactors = FALSE
-)
-# mapplist_df <- mapplist_df %>% 
-#   mutate( CoralID = sub("^[^_]+_([^_]+)", "\\1", SampleID))
-mapper <- mapper %>% full_join(mapplist_df) 
-shallowset <- photophys 
-mappershallow <- mapper
-
-photophys <- full_join(shallowset, deepset)
-mapper <- full_join(mappershallow, mapperdeep)
-mapper <- mapper %>% mutate(
-  Date = case_when( 
-  grepl('shallow', SampleID) ~ '20260224', 
-  grepl('deep', SampleID) ~ '20260218'
-   
-  )
-) 
-write.csv(photophys, file = "Outputs/AS26_DepthGradientPhenotypingData.csv", row.names = TRUE)
-photophys <- read.csv("Outputs/AS26_DepthGradientPhenotypingData.csv")
-write.csv(mapper, file = "Outputs/AS26_DepthGradientmetadata.csv", row.names = TRUE)
-depth_metadata <- read.csv("Outputs/AS26_DepthGradientmetadata.csv", row.names = 1)
-colnames(depth_metadata)[1] <- 'Bag_number'
-sample_metadata <- sample_metadata %>% mutate(
-  CoralID = case_when(Project == 'DepthGradient' ~ paste0(Species, Genotype), 
-                                                          TRUE ~ CoralID ) 
-                      ) %>% dplyr::filter(Project == "DepthGradient")
-sample_metadata1 <- sample_metadata %>% full_join(depth_metadata, by = c('Date', 'Species', 'Genotype', 'UniqueID', 'CoralID', 'Bag_number'))
-
-```
-
-
-
-# Reflectance 
-```{r abs new kenny method}
-process_abs <- function(file) { 
-stream<- read.csv(file, header = F)
-wavy <- data.frame(stream[-1, ])
-wavy[,1] <- as.numeric(wavy[,1])
-wavy <- wavy[!is.na(wavy[,1]),]
-
-wave <- rownames(wavy)[as.numeric(wavy[,1]) >= 400 & as.numeric(wavy[,1]) <= 750] #wavelengths 400 -> 800 (dependent on spectrometer)
-
-PARrow<-c(as.numeric(wave[1]), as.numeric(wave[length(wave)]))
-
-#column names
-ical<-list()
-namerChk<-list()
-for(I in 2:ncol(wavy)) {
-  qualityChk<-mean(as.numeric(wavy[-1,I])[PARrow[2]:(PARrow[2]+10)])-100
-  if(abs(qualityChk)<5) {
-    RefDat<-log(abs(1/(movingAverage(as.numeric(wavy[-1,I]), 10, TRUE)/100))) ##Absorbance Conversion
-    namerChk[[I]]<-stream[1,I]
-    RefDatAdj<-(RefDat-mean(RefDat[PARrow[2]:(PARrow[2]+10)]))[PARrow[1]:PARrow[2]]
-    ical[[I]]<-RefDatAdj
-  }
-}
-fixedDat<-data.frame(do.call(cbind, ical))
-namelist<-t(data.frame(do.call(cbind, namerChk)))
-namelist <- sub("^0", "", namelist)
-dater <- substr(basename(file), 1, 8)
-if (dater %in% datelist) {
-    if (file == "Data/Reflectance/06232025_RB_MW.csv") {
-      namelist2 <- namelist
-    } else {
-      # Use the filtered namelist, not the full list
-      cbass_F <- cbass %>% filter(date_string == dater)
-      namelist2 <- cbass_F[match(namelist, cbass_F$Plug_ID), 5]
-    }
-  } else {
-    namelist2 <- namelist
-  }
-######################
-averDat<-t(aggregate(t(fixedDat), by=list(as.factor(namelist2)), FUN=mean, rm.na=TRUE))
-colnames(averDat)<-averDat[1,]
-averDat<-data.frame(averDat[-1,], check.names=F)
-averDat<-data.frame("wave"=stream[PARrow[1]:PARrow[2],1], averDat)
-rownames(averDat) <- 1:nrow(averDat)
-######################
-roir1<-rownames(averDat)[as.numeric(averDat[,1]) >= 580]
-roir11<-c(as.numeric(roir1[1]), as.numeric(roir1[length(roir1)]))
-roir2<-rownames(averDat)[as.numeric(averDat[,1]) >= 580 & as.numeric(averDat[,1]) <= 650]
-roir22<-c(as.numeric(roir2[1]), as.numeric(roir2[length(roir2)]))
-
-
-
-fin<-list()
-for(D in 2:dim(averDat)[2])
-{
-  chlaMax<-averDat[roir11[1]:roir11[2],1][which.max(averDat[roir11[1]:roir11[2],D])]
-  chlaMin<-averDat[roir22[1]:roir22[2],1][which.min(averDat[roir22[1]:roir22[2],D])]
-  cMax<-as.numeric(rownames(averDat[averDat$wave == chlaMax, ]))
-  cMin<-as.numeric(rownames(averDat[averDat$wave == chlaMin, ]))
-  ChloroPeak<-mean(as.numeric(averDat[(cMax-6):(cMax+6),D]))
-  ChloroAUC<-AUC(x=as.numeric(averDat[(cMax-12):(cMax+12),1]), y=as.numeric(averDat[(cMax-12):(cMax+12),D]), method="trapezoid")
-  ChlcaAUC<-AUC(x=as.numeric(averDat[cMin:dim(averDat)[1],1]), y=as.numeric(averDat[cMin:dim(averDat)[1],D]), method="trapezoid")
-  WholeAUC<-AUC(x=as.numeric(averDat[,1]), y=as.numeric(averDat[,D]), method="trapezoid")
-  CBASS_ID<-colnames(averDat)[D]
-  fin[[D]]<-data.frame(CBASS_ID, ChloroPeak, ChloroAUC, ChlcaAUC, WholeAUC, "cMaxnm"=averDat[cMax,1])
-}
-finished<-data.frame(do.call(rbind, fin))   #this contains all the data processed and ready to be used to calculate % change between conrtol and treatment, or across time points.
-return(finished)
-}
-
-# -----------------------------------------
-# Example: process all CSVs in a folder
-# -----------------------------------------
-folder <- "Data/Reflectance"   # change to your folder
-files <- list.files(folder, pattern = "\\.csv$", full.names = TRUE)
-abf <- 0
-for(file in files) { 
-a <- process_abs(file)
-if(abf == 0) { 
-  reflectance <- a 
-  abf = 1 
-  } else { 
-  reflectance <- rbind(reflectance, a) } 
-}
-#colnames(reflectance) <- tolower(colnames(reflectance))
-
-col_names <- reflectance$CBASS_ID
-# Find the names that are duplicated
-duplicates <- col_names[duplicated(col_names)]
-# Print the unique duplicated names
-duplicate_indexes <- which(col_names %in% duplicates)
-reflectance <- reflectance[-duplicate_indexes,]
-reflectance$CBASS_ID <-trimws(reflectance$CBASS_ID)
-reflectance$CBASS_ID <- tolower(reflectance$CBASS_ID)
-write_csv(reflectance, file = "Outputs/Reflectance_summarized.csv")
-
-```
-
-### Percent Change Absorbance
-Calculated by taking the percent change in absorbance between the control and heat treated fragments post-CBASS bleaching. 
-```{r abs pchange}
-## ONLY INCLUDES CBASS ###### 
-reflectance <- read.csv('Outputs/Reflectance_summarized.csv', check.names = F)
-column_names <- colnames(reflectance)
-cbass$CoralID <- tolower(cbass$CoralID)
-factorlevels <- levels(as.factor(cbass$CoralID))
-perchange<-list()
-coldspectra <- list()
-hotspectra <- list()
-
-for (colony in factorlevels) {
-  hot<-paste0(colony, "h")
-  cold<-paste0(colony, "c")
-  
-  hotspectra <- reflectance[reflectance$CBASS_ID == hot,]
-  coldspectra <- reflectance[reflectance$CBASS_ID == cold,]
-  
-  if (nrow(hotspectra)!=0 && nrow(coldspectra)!=0) {
-    perchange[[colony]] <- data.frame( 
-       pC_ChloroPeak = ((hotspectra$ChloroPeak - coldspectra$ChloroPeak)/coldspectra$ChloroPeak) * 100, 
-      pC_ChloroAUC = ((hotspectra$ChloroAUC - coldspectra$ChloroAUC)/coldspectra$ChloroAUC) * 100, 
-      pC_ChlcaAUC = ((hotspectra$ChlcaAUC - coldspectra$ChlcaAUC)/coldspectra$ChlcaAUC) * 100,
-      pC_WholeAUC = ((hotspectra$WholeAUC - coldspectra$WholeAUC)/coldspectra$WholeAUC) * 100      
-      )
-  }
-}
-allDater <-data.frame(do.call(rbind, perchange)) 
-dim(allDater)
-refl_pC <- allDater
-refl_pC$CoralID <- rownames(refl_pC)
-
-## missing IDS 
-missing <- cbass[!(cbass$CoralID %in% refl_pC$CoralID),]
-print("CoralID's missing from final reflectance dataset")
-unique(missing$CoralID)
-
-
-write.csv(refl_pC, file = 'Outputs/Reflectance_PC.csv', row.names = FALSE)
-refl_pC <- read.csv('Outputs/Reflectance_PC.csv')
-
-
-```
-
-# Reflectance Old Method 
-
-### Load and Organize Reflectance Data
-```{r}
-#### load files ####
-
-#### calculate absorbance #### 
-process_abs_old <- function(file) { 
-  name <- read.csv(file, header = F)
-  #name <- day10
-  wave<-as.numeric(name[-1,1]) 
-  valid_idx <- which(wave > 400 & wave < 800)
-  wave2 <- wave[valid_idx]
-  namer<-t(name[1,-1]) #column names
-
-  ical<-list() 
-  namerChk<-list() 
-  
-  for(I in 2:ncol(name)) {	
-    data_col <- as.numeric(name[-1, I])[valid_idx]
-    qualityChk <- mean(tail(data_col, 10)) - 100
-    
-    if(abs(qualityChk)<5) {	
-      RefDat <- log(abs(1 / (movingAverage(data_col, 10, TRUE) / 100)))
-      namerChk[[I]] <- name[1, I]
-      RefDatAdj <- (RefDat - mean(tail(RefDat, 10)))
-      ical[[I]] <- RefDatAdj
-    }
-  }
-  fixedDat<-data.frame(do.call(cbind, ical))
-  namelist<-t(data.frame(do.call(cbind, namerChk)))
-  namelist <- sub("^0", "", namelist)
-  dater <- substr(basename(file), 1, 8)
-  
-if (dater %in% datelist) {
-    if (file == "Data/Reflectance/06232025_RB_MW.csv") {
-      namelist2 <- namelist
-    } else {
-      # Use the filtered namelist, not the full list
-      cbass_F <- cbass %>% filter(date_string == dater)
-      namelist2 <- cbass_F[match(namelist, cbass_F$Plug_ID), 5]
-    }
-  } else {
-    namelist2 <- namelist
-  }
-  ##################
-  averDat<-t(aggregate(t(fixedDat), by=list(as.factor(namelist2)), FUN=mean, rm.na=TRUE))
-  colnames(averDat)<-averDat[1,]
-  ##################
-  controlT3a<-data.frame(averDat[-1,], check.names = F)
-  rownames(controlT3a)<-wave2
-  t3a_num <- as.data.frame(lapply(controlT3a, as.numeric))
-  colnames(t3a_num)<- colnames(controlT3a)
-  controlT3a <- t3a_num
-  controlT3a$wave <- wave2
-  controlT3a$wave <- round(controlT3a$wave, digits = 0) 
-  colnames(controlT3a) <-trimws(colnames(controlT3a))
-  colnames(controlT3a) <- tolower(colnames(controlT3a))
-  controlT3a <- controlT3a %>% 
-    group_by(wave) %>% 
-    summarise(across(where(is.numeric), mean, na.rm = TRUE ))
-  return(controlT3a)
-}
-
-#### final reflectance dataframe #### 
-folder <- "Data/Reflectance"   # change to your folder
-files <- list.files(folder, pattern = "\\.csv$", full.names = TRUE)
-abf <- 0
-for(file in files) { 
-a <- process_abs_old(file)
-print(file)
-if(abf == 0) { 
-  reflectance <- a 
-  abf = 1 
-  } else { 
-  reflectance <- reflectance %>% full_join(a, by = 'wave') } 
-}
-backup <- reflectance
-reflectance <- backup
-####### averaging duplicates ########### 
-clean_and_average_duplicates <- function(df) {
-  
-  # 1. Get all column names
-  cols <- colnames(df)
-  
-  # 2. Identify unique base names (e.g., 'SampleA' from 'SampleA.x' or 'SampleA.1')
-  # This regex handles .x, .y, and .[digit] suffixes
-  base_names <- str_replace(cols, "\\.[xy1]$|\\.\\d+$", "")
-  
-  # Find base names that appear more than once (the duplicates)
-  duplicate_base_names <- base_names[duplicated(base_names) | duplicated(base_names, fromLast = TRUE)] %>%
-    unique()
-  
-  df_clean <- df
-  
-  # 3. Loop through each duplicated base name and calculate the average
-  for (base_name in duplicate_base_names) {
-    
-    # Find all columns that match this base name, including suffixes
-    matching_cols <- cols[str_detect(cols, paste0("^", base_name, "(\\.[xy1]$|\\.\\d+$)")) | cols == base_name]
-    
-    # Filter only the suffixed columns for averaging (e.g., SampleA.x, SampleA.y)
-    suffixed_to_average <- matching_cols[str_detect(matching_cols, "\\.[xy1]$|\\.\\d+$")]
-    
-    if (length(suffixed_to_average) > 0) {
-      
-      # Use rowwise() and c_across() to calculate the mean across the row
-      df_clean <- df_clean %>%
-        rowwise() %>% 
-        mutate(
-          # Create the new averaged column with the base name
-          !!base_name := mean(c_across(all_of(suffixed_to_average)), na.rm = TRUE)
-        ) %>%
-        ungroup() %>%
-        # Remove the original suffixed columns
-        select(-all_of(suffixed_to_average))
-    }
-  }
-  
-  return(df_clean)
-}
-
-# Apply the function to your dataframe
-combined_data_clean <- clean_and_average_duplicates(reflectance)
-
-
-
-
-write.csv(combined_data_clean, file = "Outputs/F25_AbsorbanceData_oldmethod.csv", row.names = F)
-```
-
-# Percent Change Absorbance Old Method 
-DO NOT USE IF USING NEWER ABSORBANCE CALCULATIONS
-```{r}
-reflectance <- read.csv('Outputs/F25_AbsorbanceData_oldmethod.csv')
-
-######### CBASS ############## 
-column_names <- colnames(reflectance)
-factorlevels <- levels(as.factor(tolower(cbass$CoralID)))
-perchange<-list()
-coldspectra <- list()
-hotspectra <- list()
-reflectance_pC <- list()
-
-for (colony in factorlevels) {
-  hot<-paste0(colony, "h")
-  cold<-paste0(colony, "c")
-
-  hotspectra <- reflectance[[hot]]
-  coldspectra <- reflectance[[cold]]
-  
-  if (!is.null(hotspectra) && !is.null(coldspectra)) {
-    perchange <- ((hotspectra - coldspectra) / coldspectra) * (100)
-    dataSpectra <- data.frame(reflectance$wave, coldspectra, hotspectra, perchange)
-    reflectance_pC[[colony]] <- data.frame(
-      "colony" = colony, 
-      "nm415" = round(dataSpectra[(which(dataSpectra$reflectance.wave == 415)), 4]), 
-      "nm448" = round(dataSpectra[(which(dataSpectra$reflectance.wave == 448)), 4]), 
-      "nm470" = round(dataSpectra[(which(dataSpectra$reflectance.wave == 470)), 4]), 
-      "nm505" = round(dataSpectra[(which(dataSpectra$reflectance.wave == 505)), 4]), 
-      "nm675" = round(dataSpectra[(which(dataSpectra$reflectance.wave == 675)), 4])
-    )
-  }
-}
-
-allDater <-data.frame(do.call(rbind, reflectance_pC)) 
-dim(allDater)
-refl_pC <- allDater
-colnames(refl_pC) <- c('CoralID', "nm415", "nm448", "nm470", "nm505", "nm675")
-
-write.csv(refl_pC, file = 'Outputs/F25_Absorbance_CBASS_oldmethod_pC.csv', row.names = FALSE)
-refl_pC <- read.csv('Outputs/F25_Absorbance_CBASS_oldmethod_pC.csv')
-
-```
-
-# FvFm data 
-
-### Load and Compile Processed Endpoint Data
-```{r compiling processed endpont}
-###### compiling all fvfm to one csv ################# 
-# Set the directory containing your data files
-data_dir <- '/Users/sophiewong/Documents/GraduateSchool/Lab Notes/Fiji2025/Data/FvFm'
-
-# Get a list of all files in the directory
-file_list <- list.files(path = data_dir, full.names = TRUE)
-
-# Initialize an empty list to store data frames
-endpoint <- list()
-data <- read.csv(file_list[1])
-endpoint <- data[,2:6]
-
-# Loop through each file, read it, and store it in the list
-for (file in file_list) {
-  # Read the file 
-  data <- read.csv(file)
-  base_sample_id <- substr(path_file(file), 1, nchar(path_file(file)) - 16)
- 
-  # Append the data frame to the list
-  endpoint[[base_sample_id]] <- data[,7]
- 
-}
-colnames(endpoint) <- tolower(colnames(endpoint))
-write.csv(endpoint, file = "Outputs/F25_FvFmData.csv", row.names = TRUE)
-endpoint <- read.csv("Outputs/F25_FvFmData.csv")
-
-
-```
-### calculating percent change FvFm 
-```{r pchange FvFm}
-endpoint <- read.csv('Outputs/F25_FvFmData.csv')
-endpoint <- endpoint[,-c(1, 3:6)]
-colnames(endpoint) <- tolower(colnames(endpoint))
- #colnames(endpoint)[1] <- 'CBASS_ID'
-
-factorlevels <- levels(as.factor(cbass$CoralID))
-endpoint_pC<-data.frame(endpoint$uni)
-coldend <- list()
-hotend <- list()
-
-for (colony in factorlevels) {
-  hot<-paste0(colony, "h")
-  cold<-paste0(colony, "c")
-  
-  hotend <- endpoint[[hot]]
-  coldend <- endpoint[[cold]]
-  
-  if (!is.null(hotend) && !is.null(coldend)) {
-    perchange <- ((coldend - hotend) / coldend) * (-100)
-    dataSpectra <- data.frame(coldend, hotend, perchange)
-    endpoint_pC[[colony]] <- dataSpectra$perchange
-  }
-}
-
-## missing IDS 
-missing <- cbass[!(cbass$CoralID %in% colnames(endpoint_pC)),]
-print("CoralID's missing from final reflectance dataset")
-unique(missing$CoralID)
-
-
-
-write.csv(endpoint_pC, file = 'Outputs/F25_endpoint_PC.csv')
-
-endpoint_bycol <- endpoint_pC %>% 
-  pivot_longer(
-    cols = 2:ncol(endpoint_pC),
-    names_to = "CoralID",
-    values_to= "MetricValue"
-  )
-# Step 2: Reshape from long to wide, using endpoint.uni to create new columns
-final_df <- endpoint_bycol %>%
-  pivot_wider(
-    names_from = endpoint.uni,
-    values_from = MetricValue
-  )
-endpoint_bycol <- final_df %>% 
-  select(CoralID, Quant.1.0, Quant.1.1, Quant.1.2, Quant.1.3)
-colnames(endpoint_bycol) <- c("CoralID", "FvFm_415", "FvFm_448", "FvFm_470", "FvFm_505")
-write.csv(endpoint_bycol, file = "Outputs/F25_FvFm_PC.csv")
-
-```
-
-Combining absorbance and fvfm dataframes for Ray 
-```{r}
-fvfm <- read.csv('Outputs/F25_FvFm_PC.csv', row.names = 1)
-refl <- read.csv('Outputs/F25_Absorbance_CBASS_oldmethod_pC.csv')
-
-endpoint <- fvfm %>% full_join(refl)
-write.csv(endpoint, file = 'Outputs/F25_FvFm_Abs_oldmethod_pC.csv', row.names = F)
 ```
 
