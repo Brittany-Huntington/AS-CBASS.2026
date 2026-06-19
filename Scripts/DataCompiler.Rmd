@@ -186,6 +186,7 @@ sample_metadata <- sample_metadata %>% full_join(mapplist_df, by = 'UniqueID')
 #this is written by gemini
 #now read in the reference photophys from Fiji
 
+library(here)
 
 folders <- c(
   here("Data", "phenotyping_data", "fiji", "ad_c"),
@@ -193,65 +194,38 @@ folders <- c(
   here("Data", "phenotyping_data", "fiji", "pver_d")
 )
 
-# Initialize an empty list to store data frames temporarily
-df_list <- list()
-metadata_initialized <- FALSE
-photophys_external <- data.frame()
+sample_columns <- list()
+metadata <- NULL
 
-# 2. Wrap the file processing inside a loop that iterates through your folders
 for (folder in folders) {
-  
-  # Get full paths to the CSV files in this specific folder
   files <- list.files(folder, pattern = "\\.csv$", full.names = TRUE, ignore.case = TRUE)
-  
   cat(basename(folder), ":", length(files), "files\n")
   
   for (file in files) {
-    dat <- read.csv(file)
+    # Using row.names = 1 drops that annoying empty first column automatically
+    dat <- read.csv(file, row.names = 1)
     
-    # Initialize metadata columns only once using the very first file found
-    if (!metadata_initialized) {
-      photophys_external <- dat[, 1:6]
-      metadata_initialized <- TRUE
+    # Now that the row name column is gone:
+    # dat[, 1:5] becomes: uni, metric, metrix, stage, col
+    # dat[, 6] becomes your actual data (e.g., barefoot2025...)
+    
+    # 1. Initialize metadata ONLY once from columns 1 to 5
+    if (is.null(metadata)) {
+      metadata <- dat[, 1:5] 
     }
     
-    # Extract the sample name to use as the column header
+    # 2. Extract the sample name for the column header
     sample_name <- tools::file_path_sans_ext(basename(file))
     
-    # Append the 6th column to our dataframe
-    photophys_external[[sample_name]] <- dat[, 6]
+    # 3. Store the 6th column (which is now your actual data)
+    sample_columns[[sample_name]] <- dat[, 6]
   }
 }
 
-# Check the final dimensions
-print(dim(photophys_external))
+# 4. Combine everything
+sample_df <- as.data.frame(sample_columns)
+photophys_external <- cbind(metadata, sample_df)
 
-photophys_external <- as.data.frame(photophys_external)
-
-dim(photophys_external)
- head(colnames(photophys_external))
-
-#rename
- ref_cols <- setdiff(
-  names(photophys_external),
-  c("uni", "metric", "metrix", "stage", "col")
-)
- 
- # 2. Rename only the sample columns with the "REF_" prefix
-names(photophys_external)[names(photophys_external) %in% ref_cols] <- paste0("REF_", ref_cols)
-
-# 3. Check if 'col' actually exists before trying to merge
-if (!"col" %in% names(photophys_external)) {
-  stop("Stop! 'photophys_external' is still missing the 'col' column. Check your data loading step.")
-}
-
-# 4. Use left_join instead of cbind for a bulletproof merge
-# This uses the metadata columns as keys to perfectly align rows
-photophys_combined <- left_join(
-  photophys,
-  photophys_external,
-  by = c("uni", "metric", "metrix", "stage", "col")
-)
 
 # Verify the result
 dim(photophys_combined)
