@@ -226,6 +226,9 @@ for (folder in folders) {
 sample_df <- as.data.frame(sample_columns)
 photophys_external <- cbind(metadata, sample_df)
 
+photophys_combined <- left_join(photophys_external, photophys, 
+                                by = c("uni", "metric", "metrix", "stage", "col"))
+
 
 # Verify the result
 dim(photophys_combined)
