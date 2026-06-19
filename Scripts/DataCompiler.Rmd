@@ -127,6 +127,81 @@ sample_metadata <- sample_metadata %>%
 # Phenotyping
 ### Load and Compile Processed Phenotype Data
 ```{r compiling processed pheno}
+
+
+###########need to remove some files
+# 1. Define your input folders and the new output folder
+folders <- c(
+  here("Data", "phenotyping_data", "normalized")
+)
+
+output_folder <- here("Data", "phenotyping_data", "discard")
+
+if (!dir.exists(output_folder)) {
+  dir.create(output_folder, recursive = TRUE)
+}
+
+# 2. Loop and filter
+for (folder in folders) {
+  files <- list.files(folder, pattern = "\\.csv$", full.names = TRUE, ignore.case = TRUE)
+  
+  for (file in files) {
+    # We only read the file name first to see if we need to move it
+    file_id <- tools::file_path_sans_ext(basename(file)) 
+    
+    # --- Step A: Apply your filtering logic ---
+    is_bad_file_1 <- startsWith(file_id, "t7") && 
+                     grepl("icra|ahya", file_id, ignore.case = TRUE) && 
+                     grepl("005[a-zA-Z]*-Processed$", file_id, ignore.case = TRUE)
+    
+    is_bad_file_2 <- startsWith(file_id, "t7") && 
+                     grepl("aglo|aabr", file_id, ignore.case = TRUE) && 
+                     grepl("002[a-zA-Z]*-Processed$", file_id, ignore.case = TRUE)
+    
+    if (is_bad_file_1 || is_bad_file_2) {
+      cat("Moving to discard and removing from source:", file_id, "\n")
+      
+      # Define the destination path in the discard folder
+      discard_path <- file.path(output_folder, basename(file))
+      
+      # file.rename physically moves the file (copies to destination & deletes from source)
+      file.rename(from = file, to = discard_path)
+      
+      next # Skip the rest of the loop for this file
+    }
+    
+    # --- Step B: Determine the target subfolder for good files ---
+    # NOTE: Ensure 'base_output_folder' is defined somewhere above in your script!
+    subfolder_name <- "other"
+    
+    if (grepl("icra", file_id, ignore.case = TRUE)) {
+      subfolder_name <- "icra"
+    } else if (grepl("aglo", file_id, ignore.case = TRUE)) {
+      subfolder_name <- "aglo"
+    } else if (grepl("aabr", file_id, ignore.case = TRUE)) {
+      subfolder_name <- "aabr"
+    } else if (grepl("ahya", file_id, ignore.case = TRUE)) {
+      subfolder_name <- "ahya"
+    }
+    
+    # Create the specific subfolder path (e.g., .../filtered/aglo)
+    target_dir <- file.path(output_folder, subfolder_name)
+    
+    if (!dir.exists(target_dir)) {
+      dir.create(target_dir, recursive = TRUE)
+    }
+    
+    # --- Step C: Save the valid file to its new home ---
+    dat <- read.csv(file, row.names = 1)
+    output_path <- file.path(target_dir, basename(file))
+    write.csv(dat, file = output_path, row.names = TRUE)
+  }
+}
+cat("\nSorting complete! Files are organized.\n")
+```
+
+
+```{r compiling processed pheno}
 ###### compiling all photophys to one csv ################# 
 # Set the directory containing your data files
 #data_dir <- 'Data/alldatacomparison/All_Phenotyping_Data/Processed/'
@@ -138,7 +213,6 @@ file_list <- list.files(
   path = data_dir,
   full.names = TRUE,
   pattern = "^[^aoiAOI]" ) #excluding the duplicated files here and the OCC ones. only want CBASS at this time
-
 # Initialize an empty list to store data frames
 photophys <- list()
 data <- read.csv(file_list[1])
@@ -177,16 +251,15 @@ mapplist_df <- data.frame(
 #   mutate( CoralID = sub("^[^_]+_([^_]+)", "\\1", SampleID))
 sample_metadata <- sample_metadata %>% full_join(mapplist_df, by = 'UniqueID') 
 
-#write.csv(photophys, file = "Outputs/AS26_PhenotypingData.csv", row.names = TRUE)
+write.csv(photophys, here ("Data", "AS26_PhenotypingData.csv"), row.names = TRUE)
 #photophys <- read.csv("Outputs/AS26_PhenotypingData.csv")
+
 ```
 
 
 ```{r compiling processed pheno}
 #this is written by gemini
 #now read in the reference photophys from Fiji
-
-library(here)
 
 folders <- c(
   here("Data", "phenotyping_data", "fiji", "ad_c"),
@@ -241,7 +314,7 @@ sample_metadata <- read.csv("Outputs/AS26_MAPPmetadata.csv", row.names = 1)
 ```
 
 ```{r}
-
+#format to long
 longphoto <- as.data.frame(t(photophys))
 colnames(longphoto) <- longphoto[1,] 
 longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
@@ -259,115 +332,6 @@ longphoto <- longphoto %>%
     !(startsWith(UniqueID, "t7") & grepl("aglo|aabr", UniqueID) & endsWith(UniqueID, "002"))
   )
 
-write.csv(longphoto, file = "Outputs/AS26_PhenotypingData_normalized_expt_long.csv", row.names = TRUE)
-```
-
-```{r}
-#adding a section to make a new folder that doesn't have the repete site 7s (for shiny app)
-library(here)
-library(dplyr)
-
-# 1. Define your input folders and the new output folder
-folders <- c(
-  here("Data", "phenotyping_data", "normalized")
-)
-
-output_folder <- here("Data", "phenotyping_data", "clean_normalized")
-
-if (!dir.exists(output_folder)) {
-  dir.create(output_folder, recursive = TRUE)
-}
-
-# 2. Loop and filter based on exact naming pattern
-for (folder in folders) {
-  files <- list.files(folder, pattern = "\\.csv$", full.names = TRUE, ignore.case = TRUE)
-  
-  for (file in files) {
-    dat <- read.csv(file, row.names = 1)
-    file_id <- tools::file_path_sans_ext(basename(file)) # e.g., "t7_aglo2-002r-Processed"
-    
-    # 3. Logic tailored to "t7_aglo2-002r-Processed"
-    # Looks for t7 at start, icra/ahya in middle, and 005 followed by any trailing letters/Processed
-    is_bad_file_1 <- startsWith(file_id, "t7") && 
-                     grepl("icra|ahya", file_id, ignore.case = TRUE) && 
-                     grepl("005[a-zA-Z]*-Processed$", file_id, ignore.case = TRUE)
-    
-    # Looks for t7 at start, aglo/aabr in middle, and 002 followed by any trailing letters/Processed
-    is_bad_file_2 <- startsWith(file_id, "t7") && 
-                     grepl("aglo|aabr", file_id, ignore.case = TRUE) && 
-                     grepl("002[a-zA-Z]*-Processed$", file_id, ignore.case = TRUE)
-    
-    # Drop them if they match the bad criteria
-    if (is_bad_file_1 || is_bad_file_2) {
-      cat("Filtered out:", file_id, "\n")
-      next 
-    }
-    
-    # 4. Save clean files
-    output_path <- file.path(output_folder, basename(file))
-    write.csv(dat, file = output_path, row.names = TRUE)
-  }
-}
-```
-```{r}
-# 1. Define your input folders and the new output folder
-folders <- c(
-  here("Data", "phenotyping_data", "normalized")
-)
-
-base_output_folder <- here("Data", "phenotyping_data", "spp")
-
-if (!dir.exists(output_folder)) {
-  dir.create(output_folder, recursive = TRUE)
-}
-# 2. Loop and filter
-for (folder in folders) {
-  files <- list.files(folder, pattern = "\\.csv$", full.names = TRUE, ignore.case = TRUE)
-  
-  for (file in files) {
-    dat <- read.csv(file, row.names = 1)
-    file_id <- tools::file_path_sans_ext(basename(file)) 
-    
-    # --- Step A: Apply your filtering logic ---
-    is_bad_file_1 <- startsWith(file_id, "t7") && 
-                     grepl("icra|ahya", file_id, ignore.case = TRUE) && 
-                     grepl("005[a-zA-Z]*-Processed$", file_id, ignore.case = TRUE)
-    
-    is_bad_file_2 <- startsWith(file_id, "t7") && 
-                     grepl("aglo|aabr", file_id, ignore.case = TRUE) && 
-                     grepl("002[a-zA-Z]*-Processed$", file_id, ignore.case = TRUE)
-    
-    if (is_bad_file_1 || is_bad_file_2) {
-      cat("Filtered out:", file_id, "\n")
-      next 
-    }
-    
-    # --- Step B: Determine the target subfolder ---
-    # Default subfolder if none of the keywords match
-    subfolder_name <- "other"
-    
-    if (grepl("icra", file_id, ignore.case = TRUE)) {
-      subfolder_name <- "icra"
-    } else if (grepl("aglo", file_id, ignore.case = TRUE)) {
-      subfolder_name <- "aglo"
-    } else if (grepl("aabr", file_id, ignore.case = TRUE)) {
-      subfolder_name <- "aabr"
-    } else if (grepl("ahya", file_id, ignore.case = TRUE)) {
-      subfolder_name <- "ahya"
-    }
-    
-    # Create the specific subfolder path (e.g., .../filtered/aglo)
-    target_dir <- file.path(base_output_folder, subfolder_name)
-    
-    if (!dir.exists(target_dir)) {
-      dir.create(target_dir, recursive = TRUE)
-    }
-    
-    # --- Step C: Save the file to its new home ---
-    output_path <- file.path(target_dir, basename(file))
-    write.csv(dat, file = output_path, row.names = TRUE)
-  }
-}
-cat("\nSorting complete! Files are organized in:", base_output_folder, "\n")
+write.csv(longphoto, file = "Data/AS26_PhenotypingData_normalized_expt_long.csv", row.names = TRUE)
 ```
 
