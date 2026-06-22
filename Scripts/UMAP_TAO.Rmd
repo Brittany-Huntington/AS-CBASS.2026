@@ -41,7 +41,9 @@ set.seed(123)
 
 # Loading Data 
 ```{r loading data, echo=F}
-photophys <- read.csv("./Data/AS26_PhenotypingData_expt.csv", row.names = 1)
+photophys <- read.csv(here("Data","AS26_PhenotypingData_expt.csv"), row.names = 1)
+
+photophys_combined
 
 ```
 
@@ -51,7 +53,7 @@ photophys <- read.csv("./Data/AS26_PhenotypingData_expt.csv", row.names = 1)
 
 ```{r photophys umap setup }
 ######### set up photophys dataframe ######## 
-longphoto <- as.data.frame(t(photophys_combined))
+longphoto <- as.data.frame(t(photophys))
 colnames(longphoto) <- longphoto[1,] 
 longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
 longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
