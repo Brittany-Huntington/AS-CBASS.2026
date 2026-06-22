@@ -34,6 +34,7 @@ library(alluvial)
 library(ggalluvial)
 library(umap)     
 library(caret)
+library(here)
 options(scipen=999)
 set.seed(123)
 
@@ -41,7 +42,7 @@ set.seed(123)
 
 # Loading Data 
 ```{r loading data, echo=F}
-photophys <- read.csv("Outputs/AS26_PhenotypingData.csv", row.names = 1)
+photophys <- read.csv(here("Data","AS26_PhenotypingData_expt.csv"), row.names = 1)
 
 ```
 
@@ -49,9 +50,28 @@ photophys <- read.csv("Outputs/AS26_PhenotypingData.csv", row.names = 1)
 ## Photophys UMAP  
 
 ```{r photophys umap setup }
+# Load required libraries
+library(here)
+library(dplyr)
+library(caret)
+library(vegan) 
+library(ggplot2)
+
+# Load data
+photophys <- read.csv(here("Data","AS26_PhenotypingData_expt.csv"), row.names = 1)
+
 ######### set up photophys dataframe ######## 
-longphoto <- as.data.frame(t(photophys_combined))
+longphoto <- as.data.frame(t(photophys))
 colnames(longphoto) <- longphoto[1,] 
+
+# --- CRITICAL: Extract your metadata before slicing it away! ---
+# We grab SampleID, Site, and spp from longphoto before removing rows 1:5
+metadata <- data.frame(
+  SampleID = rownames(longphoto)[-1:-5],
+  Site = longphoto[-1:-5, "Site"],  # Adjust if the row name in photophys is different (e.g., "site")
+  spp = longphoto[-1:-5, "spp"]     # Adjust if the row name in photophys is different (e.g., "Species")
+)
+
 longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
 longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
 longphoto$SampleID <- rownames(longphoto)
@@ -62,62 +82,47 @@ fullyears <- data.frame(fullyears[, colSums(is.na(fullyears)) == 0])
 allphoto <- fullyears %>% dplyr::select(-contains('Fo'), -contains('Fm'))
 rownames(allphoto) <- allphoto$SampleID
 photophys_clean <- allphoto %>% 
-   dplyr::select(-c(SampleID)) # remove non-numeric columns 
-
+  dplyr::select(-c(SampleID)) # remove non-numeric columns 
+photophys_clean <- photophys_clean %>% mutate(across(everything(), as.numeric))
+allphoto[,2:ncol(allphoto)] <- allphoto[,2:ncol(allphoto)] %>% mutate(across(everything(), as.numeric))
 
 photo.transit <- preProcess(x = photophys_clean, rangeBounds = c(0, 1), method = "range") # need to scale data 
 photo_proc <- predict(photo.transit, photophys_clean)
 photo_proc <- photo_proc[,-nearZeroVar(photo_proc)] # remove any columns with low variance across samples 
 photo_proc <- photo_proc %>%
-    dplyr::select(where(~ sum(is.na(.)) == 0))
+  dplyr::select(where(~ sum(is.na(.)) == 0))
 
-photo_proc <- as.data.frame(photo_proc) %>%
-  dplyr::select(where(is.numeric))
+# --- NMDS GENERATION ---
+# Swapping out the old umap() function for metaMDS
+photo_nmdsresult <- metaMDS(photo_proc, 
+                            distance = "euclidean", 
+                            k = 2, 
+                            trymax = 100, 
+                            autotransform = FALSE)
 
-photo_umapresult<-umap(photo_proc, n_neighbors= 4, min_dist= 0.3, metric="euclidean", n_components=2) # these parameters can change quite a bit-- worth looking up to figure out what to set them at for your data specifically 
-plot(as.numeric(photo_umapresult$layout[,1]), as.numeric(photo_umapresult$layout[,2]), pch=19, cex=0.9, axes=T)
+# Extract NMDS coordinates
+nmds_layout <- as.data.frame(scores(photo_nmdsresult, display = "sites"))
+nmds_layout$SampleID <- rownames(nmds_layout)
 
+# Join NMDS coordinates with the metadata extracted above
+plot_data <- left_join(nmds_layout, metadata, by = "SampleID")
 
-##### linking metadata to umap points ###### 
-
-
-# --- Prep the Data for Lines and Points ---
-umap_plotting_data <- data.frame(
-  UMAP1 = photo_umapresult$layout[,1], 
-  UMAP2 = photo_umapresult$layout[,2], 
-  CoralID = metad$Ramet[match(rownames(photo_umapresult$layout), metad$SampleID)], ## change to your metadata columns of interest 
-  Timepoint = metad$Timepoint[match(rownames(photo_umapresult$layout), metad$SampleID)], 
-  Treatment = metad$Treatment[match(rownames(photo_umapresult$layout), metad$SampleID)], 
-  Species = metad$Species[match(rownames(photo_umapresult$layout), metad$SampleID)], 
-  Genotype = metad$CoralID[match(rownames(photo_umapresult$layout), metad$SampleID)] 
-)
-  
-
-# Ensure CoralID is a factor for grouping
-umap_plotting_data <- umap_plotting_data %>%
-  mutate(CoralID = as.factor(CoralID))
-
-umap_plotting_data <- umap_plotting_data %>% 
-  mutate(
-    Geno_color = substr(Genotype, nchar(Genotype), nchar(Genotype))
+# --- GGPLOT2 CODE (Color by Site, Shape by spp) ---
+ggplot(plot_data, aes(x = NMDS1, y = NMDS2, color = Site, shape = spp)) +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_bw() +
+  labs(
+    title = "Photophys Trajectory NMDS",
+    subtitle = paste("Stress:", round(photo_nmdsresult$stress, 4)),
+    x = "NMDS Dimension 1",
+    y = "NMDS Dimension 2",
+    color = "Site",
+    shape = "Species"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    legend.title = element_text(face = "bold")
   )
-
-# --- Plotting Code: Spp specific plots ---
-ggplot(umap_plotting_data, aes(x = UMAP1, y = UMAP2)) +
-  # 2. Plot the points (Start and End Locations)
-  geom_point(aes(shape = Timepoint, color = Species),
-             size = 1,
-             stroke = 1, 
-             alpha = 0.8) +
-
-  labs(title = "Photophysiology UMAP",
-       x = "UMAP Dimension 1",
-       y = "UMAP Dimension 2") +
-  theme_minimal()
-
-#write.csv(umap_results$layout, "Final_UMAP_Coords.csv")
-#ggsave(filename = 'Figures/UMAP/trajectory_photophys_splitbyspp_coloredbygeno_chull.png', plot = last_plot(), width = 7.5, height = 7.5, units = "in")
-
 
 ```
 
