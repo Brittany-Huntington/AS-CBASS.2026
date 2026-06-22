@@ -53,7 +53,7 @@ library(fs)
 ### Changing file names 
 ```{r renaming raw files}
 # Read the mapping file
-sample_metadata <- read.csv(file = "Outputs/AS26_MAPPmetadata_expt.csv", check.names = F)
+sample_metadata <- read.csv(here("Data", "AS26_MAPPmetadata_expt.csv"), check.names = F)
 #sample_metadata <- sample_metadata %>% na.omit()
 #depth_metadata <- read.csv(file = 'Outputs/AS26_DepthGradientmetadata.csv')
 #sample_metadata <- sample_metadata %>% full_join(depth_metadata)
