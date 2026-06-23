@@ -70,18 +70,16 @@ longphoto_shortie <- longphoto_shortie %>%
 #       str_replace(base, "(\\D)(\\d+)$", "\\1_\\2")
 #     )
 #   )
+#check if duplicates
+longphoto_shortie %>%
+  count(SampleID_clean, stage, col, metric) %>%
+  filter(n > 1)
 
-
-#only want to keep samples that we ahve metadata for (removing any that werent already filtered out)
 
 longphoto_shortie_fixed <- longphoto_shortie %>%
-  # 1. Strip away everything from the first dot onward to fix the messy names
-  # 2. Trim any accidental whitespace from the edges
   mutate(SampleID_clean = str_remove(SampleID_clean, "\\..*"),
-         SampleID_clean = str_trim(SampleID_clean)) %>%
-  
-  # 3. Now run your original filter
-  filter(SampleID_clean %in% sample_metadata$UniqueID)
+         SampleID_clean = str_trim(SampleID_clean)) %>% #make sure no whitesapces at end of name or name issues
+  filter(SampleID_clean %in% sample_metadata$UniqueID)#only want to keep samples that we ahve metadata for (removing any that werent already filtered out) 
 
 # This shows you the rows that will be dropped
 filtered_out_samples <- longphoto_shortie_fixed %>% 
@@ -89,6 +87,12 @@ filtered_out_samples <- longphoto_shortie_fixed %>%
 
 # Print the unique SampleIDs that are filtered out
 print(unique(filtered_out_samples$SampleID_clean))
+
+#check if duplicates per sample, stage/col/metric: YES
+longphoto_shortie_fixed %>%
+  count(SampleID_clean, stage, col, metric) %>%
+  filter(n > 1)
+
 
 ```
 
@@ -101,7 +105,7 @@ longphoto_wide <- longphoto_shortie_fixed %>%
     values_from = Value,
   values_fn = mean # <-- This averages.. not sure if that is right?
   )
-#%>% distinct(SampleID_clean, .keep_all = TRUE) #dont understand why
+#%>% distinct(SampleID_clean, .keep_all = TRUE) #this one keeps just the first instance per 
 
 longphoto_wide <- longphoto_wide[,1:17]
 ```
