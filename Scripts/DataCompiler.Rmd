@@ -308,6 +308,8 @@ photophys_combined <- left_join(photophys_external, photophys,
 
 # Verify the result
 dim(photophys_combined)
+
+write.csv(photophys_combined, here ("Data", "FIJI_AS26_PhenotypingData_expt.csv"), row.names = TRUE)
 ```
 
 

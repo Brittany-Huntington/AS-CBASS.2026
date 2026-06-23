@@ -47,7 +47,7 @@ library(tidyverse)
 library(tidyr)
 library(igraph)
 library(fs)
-
+library(here)
 ```
 
 ### Changing file names 
@@ -62,12 +62,14 @@ sample_metadata <- read.csv(here("Data", "AS26_MAPPmetadata_expt.csv"), check.na
 # Making dendrogram 
 
 ```{r dendro}
-photophys <- read.csv("Outputs/AS26_PhenotypingData_expt.csv", row.names = 1)
+photophys <- read.csv(here("Data", "AS26_PhenotypingData_expt.csv"), row.names = 1)
 #photodeep <- read.csv('Outputs/AS26_DepthGradientPhenotypingData.csv', row.names =1)
 #photophys <- full_join(photophys, photodeep)
 
 longphoto <- as.data.frame(t(photophys))
 colnames(longphoto) <- longphoto[1,] 
+
+
 longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
 longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
 longphoto$SampleID <- rownames(longphoto)
@@ -103,7 +105,7 @@ longphoto <- longphoto %>%
 
 #save this long format data
 
-write.csv(longphoto, "Outputs/longphoto_clean.csv", row.names = FALSE)
+write.csv(here("Data", "longphoto_clean.csv"), row.names = FALSE)
 ```
 
 
@@ -134,14 +136,15 @@ descrCor<-cor(Alls.cor_clean)
 
 
 ```{r dendro}
-cbb<-pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=100)
-save(cbb, file = "Outputs/cbb_AS26_expt.RData")
+cbb<-pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=1000)
+save(cbb, file = here("Data", "cbb_AS26_expt_1000bs.RData"))
 ```
 
 
 ```{r dendro}
 ##### label color coding ####### 
-load("Outputs/cbb_AS26_expt_1000bs.RData")
+load(file = here("Data", "cbb_AS26_expt_1000bs.RData"))
+
 # Create a named color vector (each unique species, i.e. SiteID gets a color)
 #site_ids <- unique(guam_mapplist$mapp_no)
 site_ids <- unique(sample_metadata$Species)
@@ -211,119 +214,30 @@ table(labels(d_obj)) %>% sort(decreasing = TRUE) %>% head()
 ```{r dendro}
 #labels_cex(cb)<-0.8
 labels_cex(d_obj) <- 0.8
-samp<-"Figures/Dendro-Species_expt_circle.pdf"
-pdf(file = samp, width = 12, height = 12, bg="transparent")
-#circlize_dendrogram(as.dendrogram(cb), labels_track_height = 0.05, dend_track_height = 0.45, labels=TRUE)
+#define path
+samp_circle <- here("Plots", "Dendro-Species_expt_circle.pdf")
+pdf(file = samp_circle, width = 12, height = 12, bg = "transparent")
 circlize_dendrogram(d_obj,labels_track_height = 0.05,dend_track_height = 0.45)
 legend("topright", legend = names(site_colors), fill = site_colors, title = "Species")
 dev.off()
 
+#horizonatl
 labels_cex(d_obj) <- 0.3
-samp<-"Figures/Dendro-Species_expt_tree.pdf"
-pdf(file = samp, width = 10, height = 12)
+samp_tree <- here("Plots", "Dendro-Species_expt_tree.pdf")
+pdf(file = samp_tree, width = 10, height = 12)
 plot(d_obj, horiz = TRUE,
-  main = "Dendrogram - Species",
-  ylab = "Height")
+     main = "Dendrogram - Species",
+     ylab = "Height")
+
 legend(
   "topleft",
   legend = names(site_colors),
   fill = site_colors,
   title = "Species",
-  cex = 0.8)
+  cex = 0.8
+)
 dev.off()
-
 ```
-
-```{r}
-# 2. Match Depths to the dendrogram label order
-library(dendextend)
-library(viridis)
-library(scales)
-# We pull the numeric depth for each sample in the order they appear in the tree
-depth_vector <- as.numeric(sample_metadata$Colony.Depth..ft.[match(dend_labels, sample_metadata$SampleID)])
-
-# 3. Create a Color Gradient function
-# 'magma' or 'viridis' is great for depth; 'reverse = TRUE' makes deep water darker
-col_fun <- colorRampPalette(c("cyan", "darkblue")) 
-
-# 4. Map the depths to the colors
-# We scale the depths to a range of 0-100 to pick colors from the gradient
-scaled_depths <- round(rescale(depth_vector, to = c(1, 100)))
-label_colors <- col_fun(100)[scaled_depths]
-
-cb <- color_labels(as.dendrogram(cbb), col = label_colors)
-
-labels_cex(cb)<-0.6
-samp<-"Figures/Dendro-Depth_nocon_all.pdf"
-pdf(file = samp, width = 12, height = 12, bg="transparent")
-circlize_dendrogram(as.dendrogram(cb), labels_track_height = 0.05, dend_track_height = 0.45, labels=TRUE)
-# legend("topright", legend = names(scaled_depths), fill = label_colors, title = "Site")
-dev.off()
-
-```
-
-# Figures
-
-### Figure Title
-Write figure caption.
-Note: Adjust figure size if needed.
-
-Circular bar graph 
-``` {r standgfp} 
-################### 
-#orderbleach<-data.frame(fullyears[match(labels(cb), fullyears$SampleID),])
-orderbleach<-data.frame(maxwavelength_bycol[match(labels(cb), maxwavelength_bycol$CoralID),])
-
-data3<-orderbleach
-dim(data3)
-#colnames(data3)
-data3$new<-ifelse(data3$standGFP.3 > 1, 1, 0)
-
-empty_bar <- 1
-to_add<-matrix(NA, empty_bar, ncol(data3))
-colnames(to_add)<-colnames(data3)
-data3<-rbind(data3, to_add)
-data3<-rbind(data3, to_add)
-data3<-rbind(data3, to_add)
-data3$id<-seq(1,dim(data3)[1],1)
-
-label_data <- data3
- 
-number_of_bar <- nrow(label_data)
-angle <-  90 - 360 * (label_data$id-0.5)/number_of_bar    
-label_data$hjust<-ifelse( angle < -75, 1, 0)
-label_data$angle<-ifelse(angle < -75, angle+180, angle)
-
-p <- ggplot(data3, aes(x=as.factor(id), y=-standGFP.3*10, fill=as.factor(new))) +   
-  geom_bar(stat="identity") +
-  scale_fill_manual("legend", values=c("0"="chocolate3", "1"="chartreuse3")) +
-  ylim(500,-100) +
-  
-  theme_minimal() +
-  theme(
-    axis.text = element_blank(),
-    axis.title = element_blank(),
-    panel.grid = element_blank(),
-    plot.margin = unit(rep(-2,4), "cm")
-    	   ) +
-  
-  coord_polar(start = 0) #+
-  #geom_text(data=label_data, aes(x=id, y=-100, label=rownames(data3), hjust=hjust), color="black", fontface="bold",alpha=0.6, size=2.25, angle= label_data$angle, inherit.aes = TRUE) 
-  # geom_text(data=label_data, aes(x=id, y=-100, label="", hjust=hjust), color="black", fontface="bold",alpha=0.6, size=2.25, angle= label_data$angle, inherit.aes = TRUE) + 
-  # geom_text(
-  #   label=rownames(data3), 
-  #   nudge_x = 0.25, nudge_y = 0.25, angle= label_data$angle,
-  #   check_overlap = T, size = 1.5
-  # )
-  p
-samp<-paste("Figures/photo/standgfp3_circularbar_gfpdendro", ".pdf", sep="")
-pdf(file = samp, width = 10, height = 10, bg="transparent")
-p
-dev.off()
-
-
-```
-
 
 # Significant photophysiology metrics based on bleaching metrics 
 ## Identifying significantly correlated photophys to bleaching metrics 
