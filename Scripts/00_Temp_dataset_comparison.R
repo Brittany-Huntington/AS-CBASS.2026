@@ -9,6 +9,7 @@ library(CBASSED50) #Voolstra R package
 library(lme4)
 library(lmerTest)
 library(here)
+library(emmeans)
 
 
 rm(list = ls())
@@ -49,7 +50,7 @@ process_cbass_dataset <- function(dat, temps, dataset_name){
   # Only enforce full ramp for specific ramp designs
   if(dataset_name != "All"){
     cbass_subset <- cbass_subset %>%
-      group_by(Site) %>%
+      group_by(Site, Species, Genotype) %>%
       filter(all(temps %in% unique(Temperature))) %>%
       ungroup()
   }
@@ -105,30 +106,36 @@ eds_all <- bind_rows(lapply(names(temp_sets), function(name){
 write.csv(eds_all, here ("Data", "EDsdf_all_ramps.csv"), row.names = FALSE)
 
 
-#run model comparing ED50 estimate among temp ramp designs------------------------------
+#PART I: run model comparing ED50 estimate among temp ramp designs------------------------------
 
 #explore for outliers (getting those odd values under the "classic" temp ramp)
 View(eds_all)
-eds_all <- eds_all%>% mutate(across(where(is.character), as.factor))
+eds_all <- eds_all%>% mutate(across(where(is.character), as.factor)) %>%
+  mutate(Genotype_Unique = paste(Site, Species, Genotype, sep = "_"))
 #To ensure results were not influenced by unequal species representation, analyses were repeated for the two most commonly represented species (AGLO and ICRA).
 eds_two <- eds_all %>% filter(Species %in% c("AGLO", "ICRA"), ED50 >= tmin, ED50 <=tmax)
 
 #linear model
-mod_full <- lmer(ED50 ~ Dataset + Species + (1|Site), data = eds_all)
+mod_full  <- lmer(ED50 ~ Dataset * Species + Site + (1 | Genotype_Unique), data = eds_all)
 
 #Remove  clear model outliers (e.g. standardized residuals > 3); n = 4 from the classic model
 eds_all$resid <- resid(mod_full)
 eds_all$z <- scale(eds_all$resid)
 outliers <- eds_all %>% filter(abs(z) > 3)
-eds_clean <- eds_all %>% filter(abs(z) <= 3)
+eds_clean <- eds_all %>% filter(abs(z) <= 3) #removed the four outliers that fell outside the temperature ramp in the 'classic' temp array
 
 #re-run linear model with outliers removed
-mod_clean <- lmer(ED50 ~ Dataset + Species + (1|Site), data = eds_clean)
-mod_two <- lmer(ED50 ~ Dataset + Species + (1|Site), data = eds_two)
+mod_clean <- lmer(ED50 ~ Dataset * Species + Site + (1 | Genotype_Unique), data = eds_clean)
+mod_two   <- lmer(ED50 ~ Dataset * Species + Site + (1 | Genotype_Unique), data = eds_two)
 
 anova(mod_full)
 anova(mod_clean)
 anova(mod_two)
+
+
+#Get the estimated marginal means for the interaction and look at pairwise post hocs of dataset WITHIN each species
+comp_interaction <- emmeans(mod_clean, ~ Dataset | Species)
+pairs(comp_interaction, adjust = "")
 
 
 g1 <- ggplot(eds_clean, aes(x = Dataset, y = ED50, fill = Species)) +
@@ -152,18 +159,19 @@ ggsave(filename = here ("Plots", "ED50 Comparisons Across Temp Ramps.jpeg"), plo
 
 
 
-#run model comparing ED50 estimate from same sites calculated under classic vs refined model------------------------------
+#PART 2: SHARED SITES APPROACH (CONTROLLING FOR CONFOUNDING SITE EFFECTS)------------------------------
 
-shared_sites <- c(3,4,5,9,10)
+shared_sites <- c("3", "4", "5", "9", "10") # Character matching just to be safe
 
 dat_shared <- eds_two%>%
   filter(Site %in% shared_sites,
          Dataset %in% c("Classic","Refined"),
          Species %in% c("AGLO","ICRA"))
 
-
-#paired test using site as blocking factor to test is refined ramp changes ED values
-mod_paired <- lmer(ED50 ~ Dataset * Species + (1 | Site), data = dat_shared)
+# Fit the Paired Mixed-Effects Model; Fixed effects: Dataset, Species, and their interaction
+# Random effect: (1 | Genotype_Unique) handles the repeated measures (the exact same coral evaluated twice)
+# Fixed Blocking Factor: Site (accounts for spatial differences across the 5 sites safely without singular fits)
+mod_paired <- lmer(ED50 ~ Dataset * Species + Site + (1 | Genotype_Unique), data = dat_shared)
 anova(mod_paired) #dataset still not significant
 
 
@@ -195,46 +203,3 @@ ggsave(filename = here ("Plots", "ED50 Comparisons Across Temp Ramps--paired sit
   width = 10, height = 6, dpi = 300)
 
 
-####SUPPLEMENTAL ANALYSIS: TESTING THE PRECISION HYPOTHESIS---------------
-
-#Calculate the standard deviation (spread) of ED50 within each Site/Species group
-precision_dat <- dat_shared %>%
-  group_by(Site, Species, Dataset) %>%
-  summarise(
-    sd_ED50 = sd(ED50, na.rm = TRUE),
-    n_colonies = n(),
-    .groups = "drop"
-  )
-
-#Run a paired mixed model to test if the 8-tank design reduces within-group variance
-mod_precision <- lmer(log(sd_ED50) ~ Dataset * Species + (1 | Site), data = precision_dat)
-anova(mod_precision)
-
-
-# 3. Generate the Supplemental Precision Plot
-g_precision <- ggplot(precision_dat, aes(x = Dataset, y = sd_ED50, fill = Species)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.35) +
-  geom_jitter(aes(color = Species), width = 0.1, size = 2.5, alpha = 0.8) +
-  facet_wrap(~ Species) +
-  theme_classic(base_size = 14) +
-  labs(
-    x = "Experimental Design",
-    y = expression(paste("Within-Site Standard Deviation of ", ED[50], " (°C)")),
-    title = "Precision Comparison: Classic vs. Refined Ramp Designs",
-    subtitle = "Lower SD indicates a tighter, more precise fit around population thresholds"
-  ) +
-  theme(
-    strip.text = element_text(face = "bold"),
-    legend.position = "none"
-  )
-
-g_precision
-
-# 4. Save the plot using here()
-ggsave(
-  filename = here("Plots", "Supplemental_ED50_Design_Precision.jpeg"), 
-  plot = g_precision, 
-  width = 10, 
-  height = 6, 
-  dpi = 300
-)
