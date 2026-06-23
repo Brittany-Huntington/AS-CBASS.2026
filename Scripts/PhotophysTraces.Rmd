@@ -13,26 +13,28 @@ library(ggh4x)
 library(stringr)
 library(pvclust)
 library(dendextend)
+library(here)
 ```
 
 # Photophys data loading 
 
 ```{r photophys}
-photophys <- read.csv("Data/AS26_PhenotypingData_expt.csv", row.names = 1)
-load("Data/cbb_AS26_expt_1000bs.RData")
-sample_metadata <- read.csv(file = "Data/AS26_MAPPmetadata_expt.csv", check.names = F)
+photophys <- read.csv(here("Data","AS26_PhenotypingData_expt.csv"), row.names = 1)
+load(here("Data","cbb_AS26_expt_1000bs.RData"))
+sample_metadata <- read.csv(here("Data","AS26_MAPPmetadata_expt.csv"), check.names = F)
 # cluster object from Dendrogram.Rmd is called cbb
 clusterer <- cbb
 
 
-longphoto_shortie <- photophys %>%
+# reshape to long
+longphoto_shortie <- photophys %>% 
+  select(-c(uni, metrix)) %>%
   pivot_longer(
-    cols = -c(uni, metric, metrix, stage, col),
+    cols = -c(metric, stage, col),
     names_to = "SampleID",
-    values_to = "Value"
-  )
+    values_to = "Value")
 
-#remove  samples
+#remove  samples (shouldnt be a problame but kept this to check)
 longphoto_shortie <- longphoto_shortie %>%
   filter(
     !(startsWith(SampleID, "t7") & 
@@ -69,16 +71,39 @@ longphoto_shortie <- longphoto_shortie %>%
 #     )
 #   )
 
-longphoto_shortie <- longphoto_shortie %>%
+
+#only want to keep samples that we ahve metadata for (removing any that werent already filtered out)
+
+longphoto_shortie_fixed <- longphoto_shortie %>%
+  # 1. Strip away everything from the first dot onward to fix the messy names
+  # 2. Trim any accidental whitespace from the edges
+  mutate(SampleID_clean = str_remove(SampleID_clean, "\\..*"),
+         SampleID_clean = str_trim(SampleID_clean)) %>%
+  
+  # 3. Now run your original filter
   filter(SampleID_clean %in% sample_metadata$UniqueID)
 
-longphoto_shortie <- longphoto_shortie %>%
+# This shows you the rows that will be dropped
+filtered_out_samples <- longphoto_shortie_fixed %>% 
+  anti_join(sample_metadata, by = c("SampleID_clean" = "UniqueID"))
+
+# Print the unique SampleIDs that are filtered out
+print(unique(filtered_out_samples$SampleID_clean))
+
+```
+
+
+```{r photophys}
+
+longphoto_wide <- longphoto_shortie_fixed %>%
   pivot_wider(
     names_from = metric,
-    values_from = Value
+    values_from = Value,
+  values_fn = mean # <-- This averages.. not sure if that is right?
   )
+#%>% distinct(SampleID_clean, .keep_all = TRUE) #dont understand why
 
-longphoto_shortie <- longphoto_shortie[,1:17]
+longphoto_wide <- longphoto_wide[,1:17]
 ```
 
 
@@ -86,10 +111,10 @@ longphoto_shortie <- longphoto_shortie[,1:17]
 # Assuming 'hc' is your hclust object and 'df' is your original data
 # 1. Cut the tree into 4 clusters
 #clusters <- cutree(cbb, k = 8)
-clusters <- cutree(cbb$hclust, k = 5) #specify hclust is what we want from cbb here
+clusters <- cutree(cbb$hclust, k = 3) #specify hclust is what we want from cbb here
 
 # 2. Add the cluster assignments to your original dataframe
-df_with_clusters <- cbind(longphoto_shortie, Cluster = clusters)
+df_with_clusters <- cbind(longphoto_wide, Cluster = clusters)
 
 # 3. Pull out samples belonging to Cluster 1
 cluster_1_samples <- df_with_clusters %>% dplyr::filter(Cluster == 1) %>% 
@@ -129,7 +154,7 @@ sum_photo_long <- sum_photo %>%
 
 # 1. Empirically 'pick' the significant clusters
 # alpha = 0.95 corresponds to the 95% confidence level
-signif_clusters <- pvpick(cbb, alpha = 0.98)
+signif_clusters <- pvpick(cbb, alpha = 0.90)
 
 # 2. View the clusters and the samples within them
 print(signif_clusters$clusters)
