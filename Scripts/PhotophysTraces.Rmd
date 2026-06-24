@@ -25,14 +25,18 @@ sample_metadata <- read.csv(here("Data","AS26_MAPPmetadata_expt.csv"), check.nam
 # cluster object from Dendrogram.Rmd is called cbb
 clusterer <- cbb
 
-
 # reshape to long
 longphoto_shortie <- photophys %>% 
+  slice(1:1456) %>% #only keep first 1456 rows (corresponding to light stages 1-27).
   select(-c(uni, metrix)) %>%
   pivot_longer(
     cols = -c(metric, stage, col),
     names_to = "SampleID",
-    values_to = "Value")
+    values_to = "Value")%>%
+  filter(
+    !str_starts(metric, "m"), #remove all -m (multiple turnover)
+    !metric %in% c("Fo", "Fm") #remove Fo and Fm to prevent column shifting
+  )
 
 #remove  samples (shouldnt be a problame but kept this to check)
 longphoto_shortie <- longphoto_shortie %>%
@@ -102,34 +106,59 @@ longphoto_shortie_fixed %>%
 longphoto_wide <- longphoto_shortie_fixed %>%
   pivot_wider(
     names_from = metric,
-    values_from = Value,
-  values_fn = mean # <-- This averages.. not sure if that is right?
-  )
-#%>% distinct(SampleID_clean, .keep_all = TRUE) #this one keeps just the first instance per 
+    values_from = Value)%>% 
+  #values_fn = mean # <-- This averages.. not sure if that is right?
+distinct(SampleID_clean, .keep_all = TRUE) #this one keeps just the first instance per 
 
-longphoto_wide <- longphoto_wide[,1:17]
+longphoto_wide <- longphoto_wide[,1:16]
+
+#get clusters from cbb using hclust
+clusters <- cutree(cbb$hclust, k = 3)
+
+cluster_df <- data.frame(
+  Raw_Name = names(clusters),   # This grabs the messy "t1_aabr1.002r..." names
+  Cluster = as.factor(clusters)  # This grabs the cluster group (1, 2, or 3)
+) %>%
+  mutate(
+    # Clean up the names to match your longphoto_wide dataset
+    SampleID_clean = Raw_Name %>%
+      tolower() %>%
+      str_remove("\\.processed\\.csv$") %>%
+      str_remove("\\.\\d+r$") %>%
+      str_remove("\\..*") %>%
+      str_trim()
+  ) %>%
+  # Keep only the columns you actually need for the join
+  select(SampleID_clean, Cluster)
+
+
+df_with_clusters <- longphoto_wide %>%
+  left_join(cluster_df, by = "SampleID_clean")
 ```
 
 
 ```{r}
-# Assuming 'hc' is your hclust object and 'df' is your original data
-# 1. Cut the tree into 4 clusters
-#clusters <- cutree(cbb, k = 8)
-clusters <- cutree(cbb$hclust, k = 3) #specify hclust is what we want from cbb here
-
-# 2. Add the cluster assignments to your original dataframe
-df_with_clusters <- cbind(longphoto_wide, Cluster = clusters)
+# # Assuming 'hc' is your hclust object and 'df' is your original data
+# # 1. Cut the tree into 4 clusters
+# #clusters <- cutree(cbb, k = 8)
+# clusters <- cutree(cbb$hclust, k = 3) #specify hclust is what we want from cbb here
+# 
+# # 2. Add the cluster assignments to your original dataframe
+# df_with_clusters <- cbind(longphoto_wide, Cluster = clusters)
 
 # 3. Pull out samples belonging to Cluster 1
-cluster_1_samples <- df_with_clusters %>% dplyr::filter(Cluster == 1) %>% 
+cluster_3_samples <- df_with_clusters %>% dplyr::filter(Cluster == 3) %>% 
   distinct(SampleID_clean)
 
 # 4. View the result
-print(cluster_1_samples)
+print(cluster_3_samples)
 
-df_with_clusters[, 4:17] <- lapply(df_with_clusters[, 4:17], function(x) {
-  as.numeric(as.character(x))
-})
+df_with_clusters <- df_with_clusters %>%
+  mutate(across(
+    # Only target numeric-looking metrics, explicitly skipping your text ID columns
+    .cols = -c(SampleID, SampleID_clean, stage, col, Cluster), 
+    .fns = ~ as.numeric(as.character(.x))
+  ))
 
 sum_photo <- df_with_clusters %>% 
   group_by(stage, col, Cluster) %>%
@@ -149,22 +178,22 @@ sum_photo_long <- sum_photo %>%
     values_to = "Value"
   )
 
-# sum_photo_long <- sum_photo %>% 
-#    pivot_longer(
-#     cols = -c(stage, col, Cluster), # Selects all columns except "Metric"
-#     names_to = "Metric",
-#     values_to = "Value"
-#   ) 
+ sum_photo_long <- sum_photo %>% 
+    pivot_longer(
+     cols = -c(stage, col, Cluster), # Selects all columns except "Metric"
+     names_to = "Metric",
+     values_to = "Value"
+   ) 
 
-# 1. Empirically 'pick' the significant clusters
-# alpha = 0.95 corresponds to the 95% confidence level
-signif_clusters <- pvpick(cbb, alpha = 0.90)
-
-# 2. View the clusters and the samples within them
-print(signif_clusters$clusters)
-
-# 3. See the AU p-values for these specific clusters
-print(signif_clusters$edges)
+# # 1. Empirically 'pick' the significant clusters
+# # alpha = 0.95 corresponds to the 95% confidence level
+# signif_clusters <- pvpick(cbb, alpha = 0.90)
+# 
+# # 2. View the clusters and the samples within them
+# print(signif_clusters$clusters)
+# 
+# # 3. See the AU p-values for these specific clusters
+# print(signif_clusters$edges)
 ```
 # Plotting traces
 ```{r}
@@ -234,8 +263,7 @@ ggplot(sum_quant) +
 metric_cols <- c(
   "Quant", "Sigma", "Connect", "Tau1", "Tau2",
   "NPQ", "qP", "ABQ", "qm",
-  "nTau1", "nTau2", "nCon",
-  "Fm", "Fo"
+  "nTau1", "nTau2", "nCon"
 )
 
 sum_quant <- df_with_clusters %>%
