@@ -141,7 +141,7 @@ head(longphoto_wide)
 
 # Assuming 'hc' is your hclust object and 'df' is your original data
 # 1. Cut the tree into 4 clusters
-clusters <- cutree(cbb$hclust, k = 5)
+clusters <- cutree(cbb$hclust, k = 3)
 
 
 # 2. Add the cluster assignments to your original dataframe
@@ -198,7 +198,7 @@ sum_photo_long <- sum_photo %>%
 
 #Select Ks
 ```{r}
-cluster_results <- lapply(5:9, function(k) {
+cluster_results <- lapply(1:9, function(k) {
 
   clusters <- cutree(cbb$hclust, k = k)
 
@@ -214,7 +214,7 @@ cluster_df_all <- bind_rows(cluster_results) %>%
   pivot_wider(
     names_from = k,
     values_from = Cluster,
-    names_prefix = "Cluster_"
+    names_prefix = "K_"
   )
 
 cluster_df_all <- cluster_df_all %>%
@@ -241,7 +241,15 @@ df_with_clusters <- df_with_clusters %>%
     GroupingProperty = paste(site, toupper(species), genotype, sep = "_")
   )
 
-#write.csv(subset(df_with_clusters, select = c(SampleID_clean, site, species, genotype, GroupingProperty,  Cluster_5, Cluster_6, Cluster_7, Cluster_8)), file= "Outputs/expt_data_clustered.csv")
+
+#save the cluster assignments w sample for ed50 and umap comaprisons
+
+cluster_summary<- df_with_clusters %>%
+  distinct(SampleID_clean, .keep_all = TRUE) %>% 
+  select(SampleID_clean, site, species, genotype, K_1:K_2:K_3:K_4:K_5:K_6:K_7:K_8:K_9) 
+
+cluster_summary%>% 
+  write.csv(file = here("Data", "expt_data_clustered.csv"), row.names = FALSE)
 ```
 
 # Plotting traces
@@ -274,5 +282,29 @@ theme(
   axis.title = element_text(size = 8)
 )
 #ggsave(plot = last_plot(), filename = "Figures/Photophys_tracesbycluster.jpeg")
+```
+```{r}
+#see if site and cluster are sig associated
+table(cluster_summary$species, cluster_summary$K_3)
+chisq.test(table(cluster_summary$species, cluster_summary$K_3)) #this breaks bc ahya and aabr arent in all groups
+
+#this simulates
+chisq.test(table(cluster_summary$species, cluster_summary$K_3), simulate.p.value = TRUE)
+
+#can try fishers but that only works for two groups
+fisher.test(table(cluster_summary$species, cluster_summary$K_2))
+
+fisher.test(table(cluster_summary$species, cluster_summary$K_3), simulate.p.value = TRUE)
+
+
+#site
+table(cluster_summary$site, cluster_summary$K_3)
+chisq.test(table(cluster_summary$site, cluster_summary$K_3)) #this breaks bc ahya and aabr arent in all groups
+
+#this simulates
+chisq.test(table(cluster_summary$site, cluster_summary$K_3), simulate.p.value = TRUE)
+
+#can try fishers but that only works for two groups
+fisher.test(table(cluster_summary$site, cluster_summary$K_3), simulate.p.value = TRUE)
 ```
 
