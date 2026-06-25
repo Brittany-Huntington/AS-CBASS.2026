@@ -105,7 +105,7 @@ longphoto <- longphoto %>%
 
 #save this long format data
 
-write.csv(here("Data", "longphoto_clean.csv"), row.names = FALSE)
+#write.csv(here("Data", "longphoto_clean.csv"), row.names = FALSE)
 ```
 
 
@@ -150,8 +150,10 @@ load(file = here("Data", "cbb_AS26_expt_1000bs.RData"))
 site_ids <- unique(sample_metadata$Species)
 
 #site_colors <- setNames(magma(length(site_ids)), site_ids)
-my_custom_palette <- c( "chartreuse3", "violetred3", "sienna2", "orchid") 
-# This links "Species A" -> "DarkGreen", etc.
+#my_custom_palette <- c( "chartreuse3", "violetred3", "sienna2", "orchid") 
+#my_custom_palette <- c( "#482173", "#2e6f8e", "#29af74", "#bddf26")
+my_custom_palette <- c("#FFCB05",  "#00B2A9", "#00274C", "#702082")
+
 site_colors <- setNames(my_custom_palette[1:length(site_ids)], site_ids)
 
 # Get the label order from the dendrogram
@@ -191,9 +193,9 @@ sample_metadata$UniqueID <- sample_metadata$UniqueID %>%
 label_sites <- sample_metadata$Species[
   match(dend_labels_clean, sample_metadata$UniqueID)
 ]
-label_colors <- site_colors[label_sites]
-label_colors[is.na(label_colors)] <- "black"
-d_obj <- set(d_obj, "labels_col", label_colors)
+ label_colors <- site_colors[label_sites]
+ label_colors[is.na(label_colors)] <- "black"
+d_obj <- dendextend::set(d_obj, what = "labels_col", value = label_colors)
 
 #only analyze data here from experiment
 #label_sites <- trimws(sample_metadata$Species[match(dend_labels_clean, sample_metadata$UniqueID)])
