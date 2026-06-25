@@ -4,12 +4,14 @@ output: html_document
 date: "2026-02-14"
 ---
 
-```{r setup, include=FALSE}
+```{r}
+rm(list = ls())
 knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(ggh4x)
+library(data.table)
 library(stringr)
 library(pvclust)
 library(dendextend)
@@ -27,53 +29,27 @@ clusterer <- cbb
 
 # reshape to long
 longphoto_shortie <- photophys %>% 
-  slice(1:1456) %>% #only keep first 1456 rows (corresponding to light stages 1-27).
   select(-c(uni, metrix)) %>%
   pivot_longer(
     cols = -c(metric, stage, col),
     names_to = "SampleID",
-    values_to = "Value")%>%
-  filter(
-    !str_starts(metric, "m"), #remove all -m (multiple turnover)
-    !metric %in% c("Fo", "Fm") #remove Fo and Fm to prevent column shifting
+    values_to = "Value"
   )
-
-#remove  samples (shouldnt be a problame but kept this to check)
 longphoto_shortie <- longphoto_shortie %>%
   filter(
-    !(startsWith(SampleID, "t7") & 
-      grepl("icra|ahya", SampleID, ignore.case = TRUE) & 
-      endsWith(SampleID, "005r.processed.csv")),
-    
-    !(startsWith(SampleID, "t7") & 
-      grepl("aglo|aabr", SampleID, ignore.case = TRUE) & 
-      endsWith(SampleID, "002r.processed.csv"))
+    !(startsWith(SampleID, "t7") & grepl("icra|ahya", SampleID) & grepl("005", SampleID)),
+    !(startsWith(SampleID, "t7") & grepl("aglo|aabr", SampleID) & grepl("002", SampleID))
   )
 
 longphoto_shortie <- longphoto_shortie %>%
   mutate(
     SampleID_clean = SampleID %>%
       tolower() %>%
-      str_remove("\\.processed\\.csv$") %>%
-      str_remove("\\.\\d+r$")
+      str_replace("\\.processed\\.csv$", "") %>%
+      str_replace("\\._?\\d{2,3}r$", "") %>%
+      trimws()
   )
 
-# longphoto_shortie <- longphoto_shortie %>%
-#   mutate(
-#     SampleID_clean = SampleID %>%
-#       tolower() %>%
-#       str_remove("\\.processed\\.csv$"),
-#       
-#     base = str_extract(SampleID_clean, "^[a-z]+_?[a-z]+\\d+"),
-#     num  = str_extract(SampleID_clean, "\\d+$")
-#   )
-# 
-# longphoto_shortie <- longphoto_shortie %>%
-#   mutate(
-#     SampleID_fixed = paste0(
-#       str_replace(base, "(\\D)(\\d+)$", "\\1_\\2")
-#     )
-#   )
 #check if duplicates
 longphoto_shortie %>%
   count(SampleID_clean, stage, col, metric) %>%
@@ -97,97 +73,121 @@ longphoto_shortie_fixed %>%
   count(SampleID_clean, stage, col, metric) %>%
   filter(n > 1)
 
+#change cbb
+dend_ids <- cbb$hclust$labels %>%
+  tolower() %>%
+  str_replace("\\.processed\\.csv$", "") %>%
+  str_replace("\\._?\\d{2,3}r$", "") %>%
+  trimws()
 
+longphoto_shortie <- longphoto_shortie %>%
+  filter(SampleID_clean %in% dend_ids)
+
+# longphoto_wide <- longphoto_shortie %>%
+#   pivot_wider(
+#     names_from = metric,
+#     values_from = Value
+#   ) %>%
+#   distinct(SampleID_clean, .keep_all = TRUE)
+longphoto_wide <- longphoto_shortie %>%
+  pivot_wider(
+    id_cols = c(stage, col, SampleID, SampleID_clean),
+    names_from = metric,
+    values_from = Value
+  )
+
+
+longphoto_wide <- longphoto_wide[,1:18]
 ```
 
+#make df with clusters 3-8
+```{r}
+cluster_results <- lapply(3:8, function(k) {
+  clusters <- cutree(cbb$hclust, k = k)
+  
+  df <- data.frame(
+    SampleID = names(clusters),
+    Cluster = clusters
+  )
+  
+  # Dynamically rename the 'Cluster' column to include the k value
+  colnames(df)[2] <- paste0("Cluster_", k)
+  return(df)
+})
 
-```{r photophys}
+# Now they join cleanly without .x/.y because only 'SampleID' is shared
+cluster_df_all <- Reduce(function(x, y) left_join(x, y, by = "SampleID"), cluster_results)
 
-longphoto_wide <- longphoto_shortie_fixed %>%
-  pivot_wider(
-    names_from = metric,
-    values_from = Value)%>% 
-  #values_fn = mean # <-- This averages.. not sure if that is right?
-distinct(SampleID_clean, .keep_all = TRUE) #this one keeps just the first instance per 
-
-longphoto_wide <- longphoto_wide[,1:16]
-
-#get clusters from cbb using hclust
-clusters <- cutree(cbb$hclust, k = 3)
-
-cluster_df <- data.frame(
-  Raw_Name = names(clusters),   # This grabs the messy "t1_aabr1.002r..." names
-  Cluster = as.factor(clusters)  # This grabs the cluster group (1, 2, or 3)
-) %>%
-  mutate(
-    # Clean up the names to match your longphoto_wide dataset
-    SampleID_clean = Raw_Name %>%
+cluster_df_all <- cluster_df_all %>%
+mutate(
+    SampleID_clean = SampleID %>%
       tolower() %>%
-      str_remove("\\.processed\\.csv$") %>%
-      str_remove("\\.\\d+r$") %>%
-      str_remove("\\..*") %>%
-      str_trim()
-  ) %>%
-  # Keep only the columns you actually need for the join
-  select(SampleID_clean, Cluster)
+      str_replace("\\.processed\\.csv$", "") %>%
+      str_replace("\\._?\\d{2,3}r$", "") %>%
+      trimws()
+  )
 
+# --- Merge cluster assignments into phenotype data ---
+df_with_clusters <- longphoto_wide %>%
+  left_join(cluster_df_all, by = "SampleID_clean")
+
+# --- Check result ---
+head(df_with_clusters)
+
+head(longphoto_wide)
+```
+
+```{r}
+
+# Assuming 'hc' is your hclust object and 'df' is your original data
+# 1. Cut the tree into 4 clusters
+clusters <- cutree(cbb$hclust, k = 5)
+
+
+# 2. Add the cluster assignments to your original dataframe
+cluster_df <- data.frame(
+  SampleID = names(clusters),
+  Cluster = as.factor(clusters)
+)
+
+cluster_df<- cluster_df %>%
+  mutate(
+    SampleID_clean = SampleID %>%
+      tolower() %>%
+      str_replace("\\.processed\\.csv$", "") %>%
+      str_replace("\\._?\\d{2,3}r$", "") %>%
+      trimws()
+  )
 
 df_with_clusters <- longphoto_wide %>%
   left_join(cluster_df, by = "SampleID_clean")
-```
 
-
-```{r}
-# # Assuming 'hc' is your hclust object and 'df' is your original data
-# # 1. Cut the tree into 4 clusters
-# #clusters <- cutree(cbb, k = 8)
-# clusters <- cutree(cbb$hclust, k = 3) #specify hclust is what we want from cbb here
-# 
-# # 2. Add the cluster assignments to your original dataframe
-# df_with_clusters <- cbind(longphoto_wide, Cluster = clusters)
 
 # 3. Pull out samples belonging to Cluster 1
-cluster_3_samples <- df_with_clusters %>% dplyr::filter(Cluster == 3) %>% 
+cluster_1_samples <- df_with_clusters %>% dplyr::filter(Cluster == 1) %>% 
   distinct(SampleID_clean)
 
 # 4. View the result
-print(cluster_3_samples)
+print(cluster_1_samples)
 
-df_with_clusters <- df_with_clusters %>%
-  mutate(across(
-    # Only target numeric-looking metrics, explicitly skipping your text ID columns
-    .cols = -c(SampleID, SampleID_clean, stage, col, Cluster), 
-    .fns = ~ as.numeric(as.character(.x))
-  ))
+df_with_clusters[, 5:18] <- lapply(df_with_clusters[, 5:18], function(x) {
+  as.numeric(as.character(x))
+})
 
 sum_photo <- df_with_clusters %>% 
   group_by(stage, col, Cluster) %>%
     summarise(across(where(is.numeric), mean, na.rm = TRUE ))
 
-metric_cols <- c(
-  "Quant", "Sigma", "Connect",
-  "Tau1", "Tau2", "NPQ",
-  "qP", "ABQ", "qm",
-  "nTau1", "nTau2"
-)
-
-sum_photo_long <- sum_photo %>%
-  pivot_longer(
-    cols = all_of(metric_cols),
+sum_photo_long <- sum_photo %>% 
+   pivot_longer(
+    cols = -c(stage, col, Cluster), # Selects all columns except "Metric"
     names_to = "Metric",
     values_to = "Value"
-  )
-
- sum_photo_long <- sum_photo %>% 
-    pivot_longer(
-     cols = -c(stage, col, Cluster), # Selects all columns except "Metric"
-     names_to = "Metric",
-     values_to = "Value"
-   ) 
-
+  ) 
+# 
 # # 1. Empirically 'pick' the significant clusters
 # # alpha = 0.95 corresponds to the 95% confidence level
-# signif_clusters <- pvpick(cbb, alpha = 0.90)
+# signif_clusters <- pvpick(cbb, alpha = 0.98)
 # 
 # # 2. View the clusters and the samples within them
 # print(signif_clusters$clusters)
@@ -195,98 +195,84 @@ sum_photo_long <- sum_photo %>%
 # # 3. See the AU p-values for these specific clusters
 # print(signif_clusters$edges)
 ```
+
+#Select Ks
+```{r}
+cluster_results <- lapply(5:9, function(k) {
+
+  clusters <- cutree(cbb$hclust, k = k)
+
+  data.frame(
+    SampleID = names(clusters),
+    Cluster = as.integer(clusters),
+    k = k
+  )
+})
+
+
+cluster_df_all <- bind_rows(cluster_results) %>%
+  pivot_wider(
+    names_from = k,
+    values_from = Cluster,
+    names_prefix = "Cluster_"
+  )
+
+cluster_df_all <- cluster_df_all %>%
+  mutate(
+    SampleID_clean = SampleID %>%
+      tolower() %>%
+      str_replace("\\.processed\\.csv$", "") %>%
+      str_replace("\\._?\\d{2,3}r$", "") %>%
+      trimws()
+  )
+
+df_with_clusters <- longphoto_wide %>%
+  left_join(cluster_df_all, by = "SampleID_clean")
+
+df_with_clusters <- df_with_clusters %>%
+  mutate(
+    site = str_extract(SampleID_clean, "^t\\d+") %>%
+      str_remove("t"),
+
+    species = str_extract(SampleID_clean, "(?<=_)[:alpha:]+"),
+
+    genotype = str_extract(SampleID_clean, "\\d+$"),
+
+    GroupingProperty = paste(site, toupper(species), genotype, sep = "_")
+  )
+
+#write.csv(subset(df_with_clusters, select = c(SampleID_clean, site, species, genotype, GroupingProperty,  Cluster_5, Cluster_6, Cluster_7, Cluster_8)), file= "Outputs/expt_data_clustered.csv")
+```
+
 # Plotting traces
 ```{r}
-
-# individual coral trajectories
 sub_photo <- sum_photo_long %>% 
   dplyr::filter(Metric != 'nTau1' & Metric !=  'nTau2' & Metric != 'nCon'& Metric != 'Fm' & Metric != 'Fo' & col != 'All' & col != 'Ratio12' & col != 'Ratio32' & col != 'Ratio42') %>% 
   dplyr::mutate(stage = as.numeric(as.character(stage))) %>% 
     dplyr::filter(stage >=1  & stage <= 27) %>% 
   arrange(stage)
 
+sub_photo <- sub_photo %>%
+  mutate(Cluster = factor(Cluster))
+
 # 2. Extract the branch colors assigned by color_branches
 # This pulls the unique colors used for the clusters in order
 #extract_cols <- unique(get_leaves_branches_col(dend))
 
-cluster_cols <- c("1" = "#CC476B", "2" = "#9F7000", "3" = "#228B00", "4" = "#009681", "5" = "#0082CE","6" = "#B646C7", "7"= "blue", "8"= "black")
+#cluster_cols <- c("1" = "#CC476B", "2" = "#9F7000", "3" = "#228B00", "4" = "#009681", "5" = "#0082CE","6" = "#B646C7")
 # 3. Create a clean lookup table for your ggplot
 
 ggplot(sub_photo) + 
   geom_line(aes(x = stage, y = Value, group = interaction(col, Cluster), colour = col)) + 
   facet_grid(Metric ~ Cluster, scales = "free_y") +
-  theme_minimal() 
-ggsave(plot = last_plot(), filename = "Plots/Photophys_tracesbycluster_k5.jpeg")
-```
-
-```{r}
-#mean trace per cluster/treatment/stage plots ONE averaged line per group.
-
-# sum_quant <- df_with_clusters %>%  
-#   pivot_longer(
-#     cols = -c(stage, col, Cluster, SampleID), # Selects all columns except "Metric"
-#     names_to = "Metric",
-#     values_to = "Value"
-#   )  this didnt work bc metrics are already seperate cols. 
-
-
-
-
-# sum_quant <- sum_quant %>% 
-#   dplyr::filter(Metric == "Quant") 
-# ggplot(sum_quant) + 
-#   geom_line(aes(x = stage, y = Value, group = interaction(col, SampleID), colour = col)) + 
-#   facet_grid( col ~ Cluster, scales = "free_y") +
-#   theme_minimal() 
-
-sum_quant <- df_with_clusters %>%
-  pivot_longer(
-    cols = c(Quant, Sigma, Connect, Tau1, Tau2, NPQ, qP, ABQ, qm),
-    names_to = "Metric",
-    values_to = "Value"
-  )
-sum_quant <- sum_quant %>%
-  filter(Metric == "Quant")
-
-ggplot(sum_quant) + 
-  geom_line(aes(
-    x = stage,
-    y = Value,
-    group = interaction(col, SampleID_clean),
-    colour = col
-  )) + 
-  facet_grid(col ~ Cluster, scales = "free_y") +
-  theme_minimal()
-
-#trying this instead. just plotting quant anyway
-
-metric_cols <- c(
-  "Quant", "Sigma", "Connect", "Tau1", "Tau2",
-  "NPQ", "qP", "ABQ", "qm",
-  "nTau1", "nTau2", "nCon"
+  theme_minimal() +
+theme(
+  plot.margin = margin(10, 20, 10, 10),
+  strip.text = element_text(size = 6, ),
+  axis.text.x = element_text(size = 6),
+  axis.text.y = element_text(size = 6),
+  axis.title = element_text(size = 8)
 )
-
-sum_quant <- df_with_clusters %>%
-  pivot_longer(
-    cols = all_of(metric_cols),
-    names_to = "Metric",
-    values_to = "Value"
-  )
-
-df_with_clusters <- df_with_clusters %>%
-  select(
-    -SampleID
-  )
-
-ggplot(df_with_clusters) + 
-  geom_line(aes(
-    x = stage,
-    y = Quant,
-    group = interaction(col, SampleID_clean),
-    colour = col
-  )) + 
-  facet_grid(col ~ Cluster, scales = "free_y") +
-  theme_minimal()
-ggsave(plot = last_plot(), filename = "Plots/Photophys_tracesbycluster.jpeg")
+#ggsave(plot = last_plot(), filename = "Figures/Photophys_tracesbycluster.jpeg")
 ```
 
