@@ -1,4 +1,6 @@
 ```{r}
+
+photophys_combined<-read.csv(here("Data", "FIJI_AS26_PhenotypingData_expt.csv"), row.names = 1) #AS26_PhenotypingData_expt.csv
 # NEW NMDS CODE -------------------------------------------------------------
 
 # Run NMDS using metaMDS from the 'vegan' package
@@ -30,13 +32,14 @@ ggplot(nmds_scores, aes(x = NMDS1, y = NMDS2)) +
   labs(title = "Photophys NMDS", 
        subtitle = paste("Stress:", round(photo_nmdsresult$stress, 4)))
 ```
+
 ```{r}
 # NEW NMDS PLOTTING CODE (with Color by Site and Shape by Species) ----------------------
 # Trajectory NMDSs 
 ## Photophys NMDS   
 
 ######### set up photophys dataframe ######## 
-longphoto <- as.data.frame(t(photophys))
+longphoto <- as.data.frame(t(photophys_combined))
 colnames(longphoto) <- longphoto[1,] 
 longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
 longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
@@ -116,7 +119,7 @@ ggplot(nmds_plotting_data, aes(x = NMDS1, y = NMDS2)) +
   scale_color_brewer(palette = "Set1") + 
   
   labs(title = "Photophysiology NMDS",
-       subtitle = paste("Fiji (F) and Tutuila (Site #) Samples | Stress:", round(photo_nmdsresult$stress, 4)),
+       subtitle = paste("Fiji and Tutuila (Site #) Samples | Stress:", round(photo_nmdsresult$stress, 4)),
        x = "NMDS Dimension 1",
        y = "NMDS Dimension 2",
        color = "Species") +
