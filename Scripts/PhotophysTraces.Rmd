@@ -250,6 +250,10 @@ cluster_summary<- df_with_clusters %>%
 
 cluster_summary%>% 
   write.csv(file = here("Data", "expt_data_clustered.csv"), row.names = FALSE)
+
+df_with_clusters%>% 
+  write.csv(file = here("Data", "df_w_clusters.csv"), row.names = FALSE)
+
 ```
 
 # Plotting traces
