@@ -1,0 +1,106 @@
+```{r}
+library(dplyr)
+library(lme4)
+library(lmerTest) # Gives you p-values for the mixed model
+library(multcomp) # For the post-hoc pairwise comparisons
+
+#flatten data
+df_clean_numeric <- df_with_clusters %>%
+  mutate(across(
+    c(Quant, Sigma, Connect, Tau1, Tau2, NPQ, qP, ABQ, qm, nTau1, nTau2, nCon, Fm, Fo), 
+    ~ map_dbl(.x, ~ mean(as.numeric(unlist(.x)), na.rm = TRUE))
+  ))
+#################################################################
+###WITHIN PHENOTYPES, are there differences across wavelengths?##
+#################################################################
+# 2. Convert wavelength (col) to a factor so R treats them as distinct categories
+df_clean_numeric$col <- as.factor(df_clean_numeric$col)
+
+# 1. Filter down to just Phenotype 1
+pheno1_data <- df_clean_numeric %>% filter(K_3 == 1)
+
+# 3. Fit the mixed model (matching their script's logic)
+# 'col' is the wavelength, 'SampleID_clean' is the individual coral random effect, 
+# and 'stage' is the timepoint random effect.
+fit_quant_p1 <- lmer(Sigma ~ col + (1 | SampleID_clean) + (1 | stage), 
+                     data = pheno1_data, REML = FALSE)
+
+# Check the main effect ANOVA table
+anova(fit_quant_p1)
+
+# 4. Run the pairwise Tukey post-hoc tests on wavelength
+tukey_res <- glht(fit_quant_p1, linfct = mcp(col = "Tukey"))
+
+# 5. Get the Bonferroni-adjusted p-values
+summary(tukey_res, test = adjusted("bonferroni"))
+```
+```{r}
+library(dplyr)
+library(car)
+
+########################################################################
+##ACROSS phenotypes: are all 9 metrics driving variation among phenos?##
+########################################################################
+
+library(dplyr)
+library(lme4)
+library(lmerTest)
+library(multcomp)
+
+# Ensure Cluster is a factor
+df_clean_numeric$Cluster <- as.factor(df_clean_numeric$K_4)
+
+#Quant, Sigma, Connect, Tau1, Tau2, NPQ, qP, ABQ, qm, nTau1, nTau2, nCon, Fm, Fo), 
+# 1. Fit the mixed model for Quant across all phenotypes
+fit_quant_across <- lmer(Sigma ~ Cluster + (1 | SampleID_clean) + (1 | stage), 
+                         data = df_clean_numeric, REML = FALSE)
+
+# 2. Check if the metric significantly differs across phenotypes globally
+print("--- ANOVA Global Test ---")
+print(anova(fit_quant_across))
+
+# 3. Pairwise comparisons: Which specific phenotypes differ from each other?
+print("--- Pairwise Phenotype Comparisons ---")
+tukey_across <- glht(fit_quant_across, linfct = mcp(Cluster = "Tukey"))
+summary(tukey_across, test = adjusted("bonferroni"))
+```
+
+
+```{r}
+#this is using manova but thats not what paper did
+
+# 1. Select your 9 primary metrics and bundle them into a matrix
+metrics_matrix <- as.matrix(df_clean_numeric[, c("Quant", "Sigma", "Connect", "Tau1", "Tau2", "NPQ", "qP", "ABQ", "qm")])
+
+# 2. Fit the multivariate model against your Phenotypes (Cluster)
+manova_fit <- manova(metrics_matrix ~ K_3, data = df_clean_numeric)
+
+# 3. View the global test results using Pillai's Trace (the most robust metric)
+summary(manova_fit, test = "Pillai")
+
+summary.aov(manova_fit)
+
+
+
+#LDA
+library(MASS)
+library(ggplot2)
+
+# 1. Fit the LDA using your 9 metrics to predict the Cluster
+lda_fit <- lda(K_3 ~ Quant + Sigma + Connect + Tau1 + Tau2 + NPQ + qP + ABQ + qm, 
+               data = df_clean_numeric)
+
+# 2. Project your data into the new LDA space
+lda_data <- as.data.frame(predict(lda_fit)$x)
+lda_data$Cluster <- df_clean_numeric$Cluster
+
+# 3. Plot the phenotypes in the multi-metric space
+ggplot(lda_data, aes(x = LD1, y = LD2, color = Cluster)) +
+  geom_point(alpha = 0.4) +
+  theme_minimal() +
+  labs(title = "Phenotype Separation Driven by All 9 Metrics",
+       x = "Discriminant Linear Axis 1",
+       y = "Discriminant Linear Axis 2")
+```
+
+
