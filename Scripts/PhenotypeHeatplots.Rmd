@@ -1,0 +1,226 @@
+```{r}
+# Assuming your pre-computed hclust object is named: cbb_hclust
+# CRITICAL: The labels inside your 'cbb_hclust' object MUST match 
+# the column names of your matrix and the row names of your annotation.
+
+# 1. Update your unique keys vector to match whatever labels are inside your hclust object
+# Run: labels(cbb_hclust) in your console to see what they look like!
+unique_keys <- labels(cbb) 
+
+# 2. Assign those exact labels to your matrix and annotation dataframe
+colnames(heatmap_matrix_scaled) <- unique_keys
+rownames(annotation_col)        <- unique_keys
+
+# 3. Pass your actual hclust object directly into the heatmap
+pheatmap(
+  heatmap_matrix_scaled,
+  annotation_col = annotation_col,
+  show_colnames = FALSE,         
+  cluster_rows = TRUE,           # Let pheatmap cluster the traits (rows)
+  cluster_cols = cbb_hclust,     # <--- FORCES pheatmap to use YOUR sample dendrogram!
+  main = "Physiological Profiles Ordered by Custom CBB Dendrogram"
+)
+```
+
+
+```{r}
+library(dplyr)
+library(pheatmap)
+
+# 1. Join your datasets and strip duplicates immediately to get a clean baseline
+combined_df_unique <- cluster_summary %>%
+  inner_join(df_clean_numeric, by = "SampleID_clean") %>%
+  distinct(SampleID_clean, .keep_all = TRUE)
+
+# 2. Extract your traits matrix
+my_physiological_traits <- c("Quant", "Sigma", "Connect", "Tau1", "Tau2", "qm", "nTau2", "nTau1", "nCon", "Fo", "Fm")
+
+heatmap_matrix <- combined_df_unique %>%
+  dplyr::select(all_of(my_physiological_traits)) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  dplyr::select(where(~ var(., na.rm = TRUE) > 0)) %>% 
+  as.matrix()
+
+# 3. Transpose and scale
+heatmap_matrix_scaled <- t(scale(heatmap_matrix))
+
+# 4. Create an explicit, unique naming vector to bind the matrix and annotations
+# We will use row indexes concatenated with the ID to ensure 100% unique tracking
+unique_keys <- paste0("ID_", 1:ncol(heatmap_matrix_scaled), "_", combined_df_unique$SampleID_clean)
+
+# Assign these keys to the matrix columns
+colnames(heatmap_matrix_scaled) <- unique_keys
+
+
+# 5. Build your annotation dataframe using the EXACT same unique keys as rownames
+annotation_col <- combined_df_unique %>% 
+  dplyr::select(species.x, K_3.x) %>% # Double-check your exact K column names here!
+  mutate(across(everything(), as.factor)) %>%
+  as.data.frame()
+
+# Force the row names to match the matrix column names exactly
+rownames(annotation_col) <- unique_keys
+
+
+# 6. Plot the heatmap
+pheatmap(
+  heatmap_matrix_scaled,
+  annotation_col = annotation_col,
+  show_colnames = FALSE,         
+  cluster_rows = TRUE,           
+  cluster_cols = TRUE,           
+  clustering_method = "ward.D2", 
+  main = "Physiological Profiles vs. K-Cluster Assignments"
+)
+```
+
+
+
+```{r}
+library(dplyr)
+library(pheatmap)
+
+# 1. Join your datasets
+combined_df <- cluster_summary %>%
+  inner_join(df_clean_numeric, by = "SampleID_clean")
+
+# 2. CRITICAL STEP: Keep only the FIRST unique occurrence of each Sample ID
+# This prevents the duplicate row.names error entirely!
+combined_df_unique <- combined_df %>%
+  distinct(SampleID_clean, .keep_all = TRUE)
+
+
+# 3. Define your traits and build the matrix using the unique dataframe
+my_physiological_traits <- c("Quant", "Sigma", "Connect", "Tau1", "Tau2", "qm", "nTau2", "nTau1", "nCon", "Fo", "Fm")
+
+# --- 3. Build the matrix and clean up missing/zero-variance data ---
+heatmap_matrix <- combined_df_unique %>%
+  dplyr::select(all_of(my_physiological_traits)) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  # Fix 1: Dynamically remove traits that have absolutely zero variance
+  dplyr::select(where(~ var(., na.rm = TRUE) > 0)) %>% 
+  as.matrix()
+
+# --- 4. Scale, transpose, and handle residual NAs ---
+# Transpose and scale
+heatmap_matrix_scaled <- t(scale(heatmap_matrix))
+
+annotation_col <- combined_df_unique %>% 
+  dplyr::select(species.x, K_4.x) %>% 
+  mutate(across(everything(), as.factor)) %>%
+  as.data.frame()
+
+# Fix 2: If any NAs are still lingering, replace them with 0 
+# (Since the data is z-score scaled, 0 perfectly represents the "trait average")
+# heatmap_matrix_scaled[is.na(heatmap_matrix_scaled)] <- 0
+# heatmap_matrix_scaled[is.infinite(heatmap_matrix_scaled)] <- 0
+
+# Assign your unique sample names safely
+colnames(heatmap_matrix_scaled) <- combined_df_unique$SampleID_clean
+
+
+
+# This will now work perfectly because all names are guaranteed unique
+rownames(annotation_col) <- colnames(heatmap_matrix_scaled)
+
+
+# 5. Plot the heatmap
+pheatmap(
+  heatmap_matrix_scaled,
+  annotation_col = annotation_col,
+  show_colnames = FALSE,         
+  cluster_rows = TRUE,           
+  cluster_cols = TRUE,           
+  clustering_method = "ward.D2", 
+  main = "Physiological Profiles vs. K-Cluster Assignments"
+)
+```
+
+
+```{r}
+library(dplyr)
+library(pheatmap)
+
+# --- STEP 1: Define your actual physiological traits ---
+# Replace these placeholder names with the actual column names of your biological data!
+#Quant, Sigma, Connect, Tau1, Tau2, NPQ, qP, ABQ, qm, nTau1, nTau2, nCon, Fm, Fo), 
+my_physiological_traits <- c("Quant", "Sigma", "Connect", "Tau1", "Tau2", "qm", "nTau2", "nTau1", "nCon", "Fo", "Fm") 
+
+# Extract just the physiological data
+heatmap_matrix <- df_clean_numeric %>%
+  dplyr::select(all_of(my_physiological_traits)) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  as.matrix()
+
+# Transpose and scale (z-score) so traits are rows, samples are columns
+heatmap_matrix_scaled <- t(scale(heatmap_matrix))
+colnames(heatmap_matrix_scaled) <- cluster_summary$SampleID_clean
+
+
+# --- STEP 2: Create the annotation dataframe with your K's ---
+# This keeps your cluster assignments at the top so you can toggle between them
+annotation_col <- cluster_summary %>% 
+  dplyr::select(species, K_3, K_4, K_5) %>% # Put whatever K's you want to evaluate here
+  mutate(across(everything(), as.factor)) %>%
+  as.data.frame()
+
+rownames(annotation_col) <- colnames(heatmap_matrix_scaled)
+
+
+# --- STEP 3: Run the heatmap ---
+pheatmap(
+  heatmap_matrix_scaled,
+  annotation_col = annotation_col,
+  show_colnames = FALSE,         
+  cluster_rows = TRUE,           # This will group similar physiological traits together
+  cluster_cols = TRUE,           # This will group samples by their physiological profiles
+  clustering_method = "ward.D2", 
+  main = "Physiological Profiles vs. K-Cluster Assignments"
+)
+```
+
+
+
+```{r}
+library(dplyr)
+library(pheatmap)
+
+# --- STEP 1: Separate your continuous numeric data from your metadata ---
+# Make sure you ONLY include true numeric physiological traits here (e.g., physiological data columns)
+# Do NOT include species or sample IDs in this matrix!
+trait_columns <- c( "K_2", "K_3", "K_4", "K_5") # Double-check these are strictly numeric data columns
+
+heatmap_matrix <- cluster_summary %>%
+  dplyr::select(all_of(trait_columns)) %>%
+  mutate(across(everything(), as.numeric)) %>% # Forces everything to be numeric
+  as.matrix()
+
+# Transpose and scale (z-score) so traits are rows and samples are columns
+heatmap_matrix_scaled <- t(scale(heatmap_matrix))
+
+# Assign clear sample names to the matrix columns
+colnames(heatmap_matrix_scaled) <- cluster_summary$SampleID_clean
+
+
+# --- STEP 2: Create a true data.frame (not a tibble) for annotations ---
+annotation_col <- cluster_summary %>% 
+  dplyr::select(species, K_3) %>% 
+  mutate(across(everything(), as.factor)) %>%
+  as.data.frame() # <--- CRITICAL: Converts tibble to data.frame so row names work
+
+# Safely set the row names now that it is a standard data.frame
+rownames(annotation_col) <- colnames(heatmap_matrix_scaled)
+
+
+# --- STEP 3: Run pheatmap ---
+pheatmap(
+  heatmap_matrix_scaled,
+  annotation_col = annotation_col,
+  show_colnames = FALSE,         
+  cluster_rows = TRUE,           
+  cluster_cols = TRUE,           
+  clustering_method = "ward.D2", 
+  main = "Physiological Heatmap"
+)
+```
+

@@ -49,10 +49,13 @@ library(multcomp)
 
 # Ensure Cluster is a factor
 df_clean_numeric$Cluster <- as.factor(df_clean_numeric$K_4)
+```
 
+
+```{r}
 #Quant, Sigma, Connect, Tau1, Tau2, NPQ, qP, ABQ, qm, nTau1, nTau2, nCon, Fm, Fo), 
 # 1. Fit the mixed model for Quant across all phenotypes
-fit_quant_across <- lmer(Sigma ~ Cluster + (1 | SampleID_clean) + (1 | stage), 
+fit_quant_across <- lmer(Tau2 ~ Cluster + (1 | SampleID_clean) + (1 | stage), 
                          data = df_clean_numeric, REML = FALSE)
 
 # 2. Check if the metric significantly differs across phenotypes globally
