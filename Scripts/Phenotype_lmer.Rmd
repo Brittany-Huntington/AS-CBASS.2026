@@ -1,0 +1,69 @@
+```{r}
+library(dplyr)
+library(lme4)
+library(car)
+library(MuMIn)
+
+# --- STEP 1: Rename and clean the ID column in the ED dataframe ---
+ed_cleaned <- ed %>%
+  dplyr::rename(SampleID_clean = PhPh_Genotype) %>%
+  mutate(SampleID_clean = tolower(trimws(SampleID_clean)))
+ 
+
+
+# --- STEP 2: Clean the ID column in your cluster data and merge ---
+cluster_summary_clean <- cluster_summary %>%
+  mutate(SampleID_clean = tolower(trimws(SampleID_clean)))
+
+# Merge them together safely
+ed_with_clusters <- ed_cleaned %>%
+  inner_join(cluster_summary_clean, by = "SampleID_clean")
+
+
+# --- STEP 3: Run the Linear Mixed-Effects Models (Control for site/run) ---
+# Testing K_3
+model_k3 <- lmer(ED50 ~ K_3 + (1 | site), data = ed_with_clusters)
+print("--- K_3 Model Analysis ---")
+Anova(model_k3, type = "II")
+
+# Testing K_4
+model_k4 <- lmer(ED50 ~ K_4 + (1 | site), data = ed_with_clusters)
+print("--- K_4 Model Analysis ---")
+Anova(model_k4, type = "II")
+
+# Testing K_5
+model_k5 <- lmer(ED50 ~ K_5 + (1 | site), data = ed_with_clusters)
+print("--- K_5 Model Analysis ---")
+Anova(model_k5, type = "II")
+
+
+# --- STEP 4: Compare Model Explanatory Power ---
+print("--- AIC Comparison (Lower is Better) ---")
+print(AIC(model_k3, model_k4, model_k5))
+
+print("--- R-Squared Performance (Look at Marginal R2m for Fixed Effects) ---")
+print("K3 R2:")
+print(r.squaredGLMM(model_k3))
+print("K4 R2:")
+print(r.squaredGLMM(model_k4))
+print("K5 R2:")
+print(r.squaredGLMM(model_k5))
+```
+```{r}
+library(lme4)
+library(car)
+library(MuMIn)
+
+# --- 1. Run the Mixed Model ---
+# We model ED50 as a function of NPQ, keeping site/run as a random effect
+model_npq <- lmer(ED50 ~ NPQ + (1 | site), data = ed_with_physiology)
+
+# --- 2. Check Significance ---
+print("--- NPQ Significance Test ---")
+Anova(model_npq, type = "II")
+
+# --- 3. Check Explanatory Power (R-squared) ---
+print("--- NPQ R-Squared ---")
+r.squaredGLMM(model_npq)
+```
+

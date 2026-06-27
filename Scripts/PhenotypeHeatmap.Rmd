@@ -2,6 +2,50 @@
 library(pheatmap)
 library(dplyr)
 
+
+# Grab the hclust object directly from your pvclust output
+my_hclust <- cbb$hclust
+
+# Clean the labels directly on the hclust object so it stays the correct data type
+my_hclust$labels <- my_hclust$labels %>%
+  tolower() %>%
+  sub("\\.processed\\.csv$", "", .) %>%
+  sub("\\._?\\d{2,3}r$", "", .) %>%
+  trimws()
+
+# Keep track of this order for matching data frames
+dend_order_labels <- my_hclust$labels
+
+
+# --- 2. Align the physiological matrix data ---
+# Match the rows of your clean numeric matrix to the exact order of the hclust labels
+heatmap_matrix <- Alls.cor_clean[match(cbb$hclust$labels, rownames(Alls.cor_clean)), ] %>%
+  as.matrix()
+
+# Transpose and scale (z-score) so traits are rows
+heatmap_matrix_scaled <- t(scale(heatmap_matrix))
+# Add this line right after you create heatmap_matrix_scaled!
+heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
+heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
+
+# Assign the cleaned labels as the column names of the matrix
+colnames(heatmap_matrix_scaled) <- dend_order_labels
+
+
+# --- 3. Align the cluster metadata annotations ---
+annotation_col <- cluster_summary %>%
+  mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
+  filter(SampleID_clean %in% dend_order_labels) %>%
+  slice(match(dend_order_labels, SampleID_clean)) %>%
+  dplyr::select(species, K_6, K_7, K_8, K_9) %>% # Toggle your K's here
+  mutate(across(everything(), as.factor)) %>%
+  as.data.frame()
+
+# Explicitly match the row names to the matrix columns
+rownames(annotation_col) <- colnames(heatmap_matrix_scaled)
+
+
+
 # --- 1. Filter out Fm/Fo and isolate your 9 metrics ---
 metric_names <- rownames(heatmap_matrix_scaled)
 keep_metrics <- metric_names[!metric_names %in% c("Fm", "Fo", "fm", "fo")]
@@ -36,7 +80,7 @@ annotation_row        <- annotation_row[sorted_order, , drop = FALSE]
 
 # --- 4. Export the Sorted Heatmap ---
 jpeg(
-  file = here("Data", "Sorted_Grouped_Physiological_Heatmap.jpg"), 
+  file = here("Plots", "Sorted_Grouped_Physiological_Heatmap.jpg"), 
   width = 12, 
   height = 10, 
   units = "in", 
@@ -45,21 +89,24 @@ jpeg(
 
 pheatmap(
   heatmap_matrix_scaled,
-  annotation_col = annotation_col, # Columns stay grouped by your top dendrogram
-  annotation_row = annotation_row, # Rows are now blocked together by metric type
-  show_colnames  = FALSE,          
-  show_rownames  = FALSE,          
-  cluster_rows   = FALSE,          # <--- TURN OFF ROW CLUSTERING to keep our sorted order!
-  cluster_cols   = my_hclust,      # Top tree remains completely intact
+  annotation_col = annotation_col,
+  annotation_row = annotation_row,
+  show_colnames  = FALSE,         
+  show_rownames  = TRUE,          # <--- Turn this back to TRUE to see them!
+  cluster_rows   = FALSE,         
+  cluster_cols   = my_hclust,     
   color          = my_palette,           
   breaks         = my_breaks,           
-  main           = "Sorted MAPP Fluorescence Metrics vs. Genetic Clusters"
+  main           = "Sorted MAPP Fluorescence Metrics vs. Genetic Clusters",
+  margins        = c(5, 20)       # <--- [Column_Margin, Row_Margin]. Increase 12 if names are long!
 )
 
 dev.off()
+
+
 ```
 
-
+#old code
 ```{r}
 library(pheatmap)
 library(dplyr)
@@ -220,7 +267,7 @@ annotation_col <- cluster_summary %>%
   mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
   filter(SampleID_clean %in% dend_order_labels) %>%
   slice(match(dend_order_labels, SampleID_clean)) %>%
-  dplyr::select(species, K_3, K_4, K_5) %>% # Toggle your K's here
+  dplyr::select(species, K_5, K_6, K_7, K_8, K_9) %>% # Toggle your K's here
   mutate(across(everything(), as.factor)) %>%
   as.data.frame()
 
