@@ -1,2 +1,2 @@
-"stage","col","SampleID.x","SampleID_clean","Quant","Sigma","Connect","Tau1","Tau2","NPQ","qP","ABQ","qm","nTau1","nTau2","nCon","Fm","Fo","SampleID.y","K_1","K_2","K_3","K_4","K_5","K_6","K_7","K_8","K_9","site","species","genotype","GroupingProperty"
+"stage","col","SampleID.x","SampleID_clean","Quant","Sigma","Connect","Tau1","Tau2","NPQ","qP","ABQ","qm","nTau1","nTau2","nCon","Fm","Fo","SampleID.y","K_2","K_3","K_4","K_5","K_6","K_7","K_8","K_9","K_10","K_11","K_12","K_13","K_14","K_15","site","species","genotype","GroupingProperty"
 "1","1","t1_aabr1.002r.processed.csv","t1_aabr1",
