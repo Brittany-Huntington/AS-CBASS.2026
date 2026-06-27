@@ -115,7 +115,7 @@ fullyears <- longphoto
 
 fullyears <- data.frame(fullyears[, colSums(is.na(fullyears)) == 0])
 
-fullyears <- fullyears %>% select(-contains(c('Fo', "Fm"))) # removing Fo and Fm metrics because already included in Quant calculations. Script used to also remove "Con", but since instrument variability were normalized, don't need to remove.
+#fullyears <- fullyears %>% select(-contains(c('Fo', "Fm"))) # removing Fo and Fm metrics because already included in Quant calculations. Script used to also remove "Con", but since instrument variability were normalized, don't need to remove.
 dim(fullyears)
 Alls.cntn<-fullyears
 Alls.transit<-preProcess(x=Alls.cntn, rangeBounds = c(0,1), method="range")
@@ -143,7 +143,7 @@ save(cbb, file = here("Data", "cbb_AS26_expt_1000bs.RData"))
 
 ```{r dendro}
 ##### label color coding ####### 
-load(file = here("Data", "cbb_AS26_expt_1000bs.RData"))
+load(file = here("Data", "cbb_AS26_expt_1000bs.RData")) #creates cbb
 
 # Create a named color vector (each unique species, i.e. SiteID gets a color)
 #site_ids <- unique(guam_mapplist$mapp_no)
