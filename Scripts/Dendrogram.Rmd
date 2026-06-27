@@ -131,6 +131,7 @@ Alls.cor <- Alls.cor[,-1]
 bad_cols <- sapply(Alls.cor, function(x) all(is.na(x)) || sd(x, na.rm = TRUE) == 0)
 Alls.cor_clean <- Alls.cor[, !bad_cols]
 descrCor<-cor(Alls.cor_clean)
+save(Alls.cor_clean, file = here("Data", "Alls.cor_clean.RData"))
 
 ```
 

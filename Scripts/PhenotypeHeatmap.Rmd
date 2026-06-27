@@ -1,7 +1,9 @@
 ```{r}
 library(pheatmap)
 library(dplyr)
-
+load(here("Data","cbb_AS26_expt_1000bs.RData"))
+load(here("Data", "Alls.cor_clean.RData"))
+cluster_summary<-read.csv(here("Data", "expt_data_clustered.csv"))
 
 # Grab the hclust object directly from your pvclust output
 my_hclust <- cbb$hclust
@@ -37,7 +39,7 @@ annotation_col <- cluster_summary %>%
   mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
   filter(SampleID_clean %in% dend_order_labels) %>%
   slice(match(dend_order_labels, SampleID_clean)) %>%
-  dplyr::select(species, K_6, K_7, K_8, K_9) %>% # Toggle your K's here
+  dplyr::select(species, K_2:K_15) %>% # Toggle your K's here
   mutate(across(everything(), as.factor)) %>%
   as.data.frame()
 
@@ -267,7 +269,7 @@ annotation_col <- cluster_summary %>%
   mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
   filter(SampleID_clean %in% dend_order_labels) %>%
   slice(match(dend_order_labels, SampleID_clean)) %>%
-  dplyr::select(species, K_5, K_6, K_7, K_8, K_9) %>% # Toggle your K's here
+  dplyr::select(species, K_2:K_15) %>% # Toggle your K's here
   mutate(across(everything(), as.factor)) %>%
   as.data.frame()
 
