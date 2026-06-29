@@ -3,7 +3,20 @@ library(pheatmap)
 library(dplyr)
 load(here("Data","cbb_AS26_expt_1000bs.RData"))
 load(here("Data", "Alls.cor_clean.RData"))
+#load(here("Data", "TUT_seq.csv"))
+
 cluster_summary<-read.csv(here("Data", "expt_data_clustered.csv"))
+ed50_data<-read.csv(file = here("Data", "AS26_ED50_CI_BIC_TAO.csv"))%>%
+# 2. Rename PhPh_Genotype to match your clean ID column, and clean up the text casing
+  dplyr::rename(SampleID_clean = PhPh_Genotype) %>% 
+  mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>% 
+  # 3. Keep only the ID and the ED50 score
+  dplyr::select(SampleID_clean, ED50)
+
+#add ed50 data
+annot_master <- cluster_summary %>%
+  mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
+  left_join(ed50_data, by = "SampleID_clean")
 
 # Grab the hclust object directly from your pvclust output
 my_hclust <- cbb$hclust
@@ -35,17 +48,31 @@ colnames(heatmap_matrix_scaled) <- dend_order_labels
 
 
 # --- 3. Align the cluster metadata annotations ---
-annotation_col <- cluster_summary %>%
-  mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
+
+
+annotation_col <- annot_master %>%
   filter(SampleID_clean %in% dend_order_labels) %>%
   slice(match(dend_order_labels, SampleID_clean)) %>%
-  dplyr::select(species, K_2:K_15) %>% # Toggle your K's here
-  mutate(across(everything(), as.factor)) %>%
-  as.data.frame()
+  # Select metadata, your cluster level, AND the continuous ED50 column
+  dplyr::select(SampleID_clean, species, K_12, ED50)
+
+annotation_col <- annotation_col %>%
+  mutate(ED50_capped = ifelse(ED50 > 39, 39, ED50)) %>%
+  dplyr::select(-ED50)
+# Establish row names for pheatmap and strip the raw ID column
+annotation_col <- as.data.frame(annotation_col)
+rownames(annotation_col) <- annotation_col$SampleID_clean
+annotation_col$SampleID_clean <- NULL
+
+# Convert categorical features to factors, keeping ED50 numeric
+annotation_col <- annotation_col %>% 
+  mutate(across(c(species, K_12), as.factor))
+
 
 # Explicitly match the row names to the matrix columns
-rownames(annotation_col) <- colnames(heatmap_matrix_scaled)
-
+#rownames(annotation_col) <- colnames(heatmap_matrix_scaled)
+# rownames(annotation_col) <- annotation_col$SampleID_clean
+# annotation_col$SampleID_clean <- NULL
 
 
 # --- 1. Filter out Fm/Fo and isolate your 9 metrics ---
@@ -82,7 +109,7 @@ annotation_row        <- annotation_row[sorted_order, , drop = FALSE]
 
 # --- 4. Export the Sorted Heatmap ---
 jpeg(
-  file = here("Plots", "Sorted_Grouped_Physiological_Heatmap.jpg"), 
+  file = here("Plots", "Sorted_Grouped_Physiological_Heatmap_k12only.jpg"), 
   width = 12, 
   height = 10, 
   units = "in", 
@@ -94,11 +121,11 @@ pheatmap(
   annotation_col = annotation_col,
   annotation_row = annotation_row,
   show_colnames  = FALSE,         
-  show_rownames  = TRUE,          # <--- Turn this back to TRUE to see them!
+  show_rownames  = FALSE,          # <--- Turn this back to TRUE to see them!
   cluster_rows   = FALSE,         
   cluster_cols   = my_hclust,     
-  color          = my_palette,           
-  breaks         = my_breaks,           
+  #color          = my_palette,           
+  #breaks         = my_breaks,           
   main           = "Sorted MAPP Fluorescence Metrics vs. Genetic Clusters",
   margins        = c(5, 20)       # <--- [Column_Margin, Row_Margin]. Increase 12 if names are long!
 )
@@ -308,5 +335,47 @@ pheatmap(
   breaks = my_breaks,           # <--- Force symmetric limits
   main = "Physiological Profiles Ordered by Custom CBB Dendrogram"
 )
+```
+
+
+```{r}
+#plot ED50 by cluster assignment, here K=12
+#1. set order for easy interpretation 
+custom_order <- c("1", "2", "3", "4", "10", "11", "5", "6", "7", "8", "9", "12")
+
+# --- 2. Clean Data & Reorder Factor Levels ---
+df_sorted <- df_modeling %>%
+  filter(ED50 < 45) %>% 
+  mutate(
+    # Force K_12 to follow your specific sequence on the x-axis
+    K_12_sorted = factor(as.character(K_12), levels = custom_order),
+    species_color = toupper(trimws(species))
+  ) %>%
+  # Drop any rows that don't match your custom level list (if any exist)
+  filter(!is.na(K_12_sorted))
+
+# --- 3. Build the Single Unfaceted Plot ---
+plot_sorted_k12 <- ggplot(df_sorted, aes(x = K_12_sorted, y = ED50)) +
+  # One clean boxplot per cluster step along your custom x-axis order
+  geom_boxplot(alpha = 0.3, outlier.shape = NA, color = "black", fill = "grey98") +
+  
+  # Scatter individual dots colored by species
+  geom_jitter(aes(color = species_color), width = 0.2, alpha = 0.8, size = 2.5) +
+  
+  theme_bw(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(face = "bold", size = 11),
+    legend.position = "bottom"
+  ) +
+  labs(
+   # title = "ED50 Phenotypes Ordered by Custom Cluster Sequence",
+    x = "K_12 Cluster Assignment",
+    y = expression(ED[50]*" Score"),
+    color = "Species"
+  )
+
+# Save the plot with a wide canvas ratio to accommodate the 12 columns
+ggsave(here("Plots", "ED50_K12_boxplot_Sorted.png"), plot = plot_sorted_k12, width = 11, height = 7, dpi = 300)
 ```
 
