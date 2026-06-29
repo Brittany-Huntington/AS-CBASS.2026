@@ -107,3 +107,316 @@ ggplot(lda_data, aes(x = LD1, y = LD2, color = Cluster)) +
 ```
 
 
+```{r}
+# Install lme4 if you don't have it: install.packages("lme4")
+library(dplyr)
+library(purrr)
+library(lme4) 
+
+# Ensure variables are factors and drop rows missing ED50 or site data
+df_modeling <- annot_master %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 2:15)
+
+# Loop through and compute AIC using lmer()
+aic_mixed_all <- map_df(k_cols, function(k_name) {
+  
+  # Fit Mixed Model: ED50 ~ Cluster fixed effect + Site/Run random effect
+  # REML = FALSE is CRITICAL here because we are comparing models with different fixed effects
+  model <- lmer(as.formula(paste("ED50 ~", k_name, "+ (1 | site)")), 
+                data = df_modeling, 
+                REML = FALSE)
+  
+  data.frame(
+    Model = k_name,
+    AIC = AIC(model)
+  )
+})
+
+# Arrange from lowest AIC (best) to highest
+aic_mixed_all <- aic_mixed_all %>% arrange(AIC)
+print("--- Full Dataset Mixed Model Comparisons ---")
+print(aic_mixed_all)
+
+k12_m <- lmer(ED50 ~ K_12 + (1 | site), data = df_modeling, REML = FALSE)
+k13_m <- lmer(ED50 ~ K_13 + (1 | site), data = df_modeling, REML = FALSE)
+k2_m  <- lmer(ED50 ~ K_2 + (1 | site),  data = df_modeling, REML = FALSE)
+
+# 2. Run the comparative ANOVA (Likelihood Ratio Test)
+anova(k2_m, k12_m, k13_m)
+
+
+
+library(emmeans)
+
+# 1. Calculate the estimated marginal means for each cluster group
+k12_means <- emmeans(k12_m, specs = ~ K_12)
+
+# 2. Run the pairwise post-hoc comparisons with Tukey adjustment
+k12_posthoc <- pairs(k12_means, adjust = "tukey")
+
+# 3. View the results
+# (Optional: filter for only statistically significant differences)
+k12_posthoc_df <- as.data.frame(k12_posthoc)
+
+significant_differences <- k12_posthoc_df %>% 
+  filter(p.value < 0.05)
+
+print(significant_differences)
+plot(k12_means, comparisons = TRUE)
+```
+```{r}
+#using site as random effect (bc variance was so low last time)
+
+# Keep site and clusters as regular factor variables
+df_modeling <- annot_master %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 2:15)
+
+# Loop using standard linear models with site as a fixed covariate
+aic_fixed_covariate <- map_df(k_cols, function(k_name) {
+  
+  # Formula: ED50 ~ Cluster + Site (Fixed Effect)
+  model <- lm(as.formula(paste("ED50 ~", k_name, "+ site")), data = df_modeling)
+  
+  data.frame(
+    Model = k_name,
+    AIC = AIC(model),
+    R_squared = summary(model)$r.squared
+  )
+})
+
+# Arrange from lowest AIC (best) to highest
+aic_fixed_covariate <- aic_fixed_covariate %>% arrange(AIC)
+print("--- Fixed Effect (Site as Covariate) Model Comparisons ---")
+print(aic_fixed_covariate)
+
+
+k12 <- lm(ED50 ~ K_12 + site, data = df_modeling)
+k13 <- lm(ED50 ~ K_13 + site, data = df_modeling)
+k2 <- lm(ED50 ~ K_2 + site, data = df_modeling)
+# 2. Now run the ANOVA on that model object!
+anova(k12, k13,k2)
+
+# 1. Calculate the estimated marginal means for each cluster group
+k12_means <- emmeans(k12, specs = ~ K_12)
+
+# 2. Run the pairwise post-hoc comparisons with Tukey adjustment
+k12_posthoc <- pairs(k12_means, adjust = "tukey")
+
+# 3. View the results
+# (Optional: filter for only statistically significant differences)
+k12_posthoc_df <- as.data.frame(k12_posthoc)
+
+significant_differences <- k12_posthoc_df %>% 
+  filter(p.value < 0.05)
+
+print(significant_differences)
+plot(k12_means, comparisons = TRUE)
+```
+```{r}
+library(dplyr)
+library(purrr)
+library(lme4) # Using standard lmer here
+
+# 1. Filter dataset for just IRCA and clean factors
+df_irca <- annot_master %>%
+  filter((species) == "icra") %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 2:15)
+
+# 2. Run the loop with regular lmer
+aic_irca_lmer <- map_df(k_cols, function(k_name) {
+  
+  if(length(unique(df_irca[[k_name]])) > 1) {
+    
+    # Regular lmer instead of blmer
+    model <- lmer(as.formula(paste("ED50 ~", k_name, "+ (1 | site)")), 
+                   data = df_irca, 
+                   REML = FALSE)
+    
+    data.frame(
+      Model = k_name,
+      AIC = AIC(model)
+    )
+  } else {
+    NULL 
+  }
+})
+
+print(aic_irca_lmer)
+
+k2_i <- lmer(ED50 ~ K_2 + (1 | site), data = df_irca, REML = FALSE)
+k3_i <- lmer(ED50 ~ K_3 + (1 | site), data = df_irca, REML = FALSE)
+k4_i  <- lmer(ED50 ~ K_4 + (1 | site),  data = df_irca, REML = FALSE)
+
+# 2. Run the comparative ANOVA (Likelihood Ratio Test)
+anova(k2_i, k3_i, k4_i)
+
+
+
+library(emmeans)
+
+# 1. Calculate the estimated marginal means for each cluster group
+k2_i_means <- emmeans(k2_i, specs = ~ K_2)
+
+# 1. Run the pairwise contrasts
+k2_i_posthoc <- pairs(k2_i_means, adjust = "tukey")
+
+# 2. CONVERT TO DATA FRAME FIRST so you can use filter()
+k2_i_posthoc_df <- as.data.frame(k2_i_posthoc)
+
+significant_differences <- k2_i_posthoc_df %>% 
+  filter(p.value < 0.05)
+
+print(significant_differences)
+plot(k2_i_means, comparisons = TRUE)
+```
+
+
+```{r}
+# Install blme if you don't have it: install.packages("blme")
+library(dplyr)
+library(purrr)
+library(blme) # <-- Bayesian mixed models to prevent singular fits
+
+# 1. Filter dataset for just IRCA and clean factors
+df_irca <- annot_master %>%
+  filter(tolower(species) == "irca") %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 2:15)
+
+# 2. Run the loop
+aic_irca_mixed <- map_df(k_cols, function(k_name) {
+  
+  # Check if the cluster varies within IRCA
+  if(length(unique(df_irca[[k_name]])) > 1) {
+    
+    # blmer keeps site as a random effect but stabilizes the math
+    model <- blmer(as.formula(paste("ED50 ~", k_name, "+ (1 | site)")), 
+                   data = df_irca, 
+                   REML = FALSE)
+    
+    data.frame(
+      Model = k_name,
+      AIC = AIC(model)
+    )
+  } else {
+    NULL # Skip if the cluster doesn't split up the IRCA samples
+  }
+})
+
+# 3. View the results sorted by best fit
+aic_irca_mixed <- aic_irca_mixed %>% arrange(AIC)
+print("--- IRCA Only Random Effect Model Comparisons ---")
+print(aic_irca_mixed)
+
+```
+```{r}
+#aglo
+# 1. Filter dataset for just IRCA and clean factors
+df_aglo <- annot_master %>%
+  filter((species) == "aglo") %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 2:15)
+
+# 2. Run the loop with regular lmer
+aic_aglo_lmer <- map_df(k_cols, function(k_name) {
+  
+  if(length(unique(df_aglo[[k_name]])) > 1) {
+    
+    # Regular lmer instead of blmer
+    model <- lmer(as.formula(paste("ED50 ~", k_name, "+ (1 | site)")), 
+                   data = df_aglo, 
+                   REML = FALSE)
+    
+    data.frame(
+      Model = k_name,
+      AIC = AIC(model)
+    )
+  } else {
+    NULL 
+  }
+})
+
+print(aic_aglo_lmer)
+
+k10_a <- lmer(ED50 ~ K_10 + (1 | site), data = df_aglo, REML = FALSE)
+k11_a <- lmer(ED50 ~ K_11 + (1 | site), data = df_aglo, REML = FALSE)
+k12_a <- lmer(ED50 ~ K_12 + (1 | site), data = df_aglo, REML = FALSE)
+k14_a  <- lmer(ED50 ~ K_14 + (1 | site),  data = df_aglo, REML = FALSE)
+
+# 2. Run the comparative ANOVA (Likelihood Ratio Test)
+anova(k10_a,k11_a, k12_a, k14_a)
+
+
+
+library(emmeans)
+
+# 1. Calculate the estimated marginal means for each cluster group
+k11_a_means <- emmeans(k11_a, specs = ~ K_11)
+
+# 1. Run the pairwise contrasts
+k11_a_posthoc <- pairs(k11_a_means, adjust = "tukey")
+
+# 2. CONVERT TO DATA FRAME FIRST so you can use filter()
+k11_a_posthoc_df <- as.data.frame(k2_i_posthoc)
+
+significant_differences <- k11_a_posthoc_df %>% 
+  filter(p.value < 0.05)
+
+print(significant_differences)
+plot(k11_a_means, comparisons = TRUE)
+```
+
+```{r}
+#aglo
+# 1. Filter dataset for just IRCA and clean factors
+df_aglo <- annot_master %>%
+  filter((species) == "aglo") %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 2:15)
+
+# 2. Run the loop with regular lmer
+aic_aglo_lmer <- map_df(k_cols, function(k_name) {
+  
+  if(length(unique(df_aglo[[k_name]])) > 1) {
+    
+    # Regular lmer instead of blmer
+    model <- lmer(as.formula(paste("ED50 ~", k_name, "+ (1 | site)")), 
+                   data = df_aglo, 
+                   REML = FALSE)
+    
+    data.frame(
+      Model = k_name,
+      AIC = AIC(model)
+    )
+  } else {
+    NULL 
+  }
+})
+
+print(aic_aglo_lmer)
+
+k2_a <- lmer(ED50 ~ K_2 + (1 | site), data = df_aglo, REML = FALSE)
+k3_a <- lmer(ED50 ~ K_3 + (1 | site), data = df_aglo, REML = FALSE)
+k4_a  <- lmer(ED50 ~ K_4 + (1 | site),  data = df_aglo, REML = FALSE)
+
+# 2. Run the comparative ANOVA (Likelihood Ratio Test)
+anova(k2_a, k3_a, k4_a)
+
+
+```
+
