@@ -3,8 +3,8 @@ library(dplyr)
 library(here)
 library(vegan)
 
-permanova_matrix <- load(filename = here("Data", "permanova_matrix.Rdata") #unscaled matrix
-annotation_col <- load( filename = here( "Data", "annotation_col.Rdata")) #metadata
+permanova_matrix <- load(here("Data", "permanova_matrix.Rdata")) #unscaled matrix
+annotation_col <- load(here( "Data", "annotation_col.Rdata")) #metadata
 
 
 #Z-score scale
