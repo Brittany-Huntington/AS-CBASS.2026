@@ -69,7 +69,7 @@ annotation_col$SampleID_clean <- NULL
 annotation_col <- annotation_col %>% 
   mutate(across(c(species, K_10:K_15), as.factor))
 
-save(annotation_col, file = here( "Data", "annotation_col.Rdata"))
+write.csv(annotation_col, file = here( "Data", "annotation_col.csv"))
 
 # Explicitly match the row names to the matrix columns
 #rownames(annotation_col) <- colnames(heatmap_matrix_scaled)
@@ -84,7 +84,8 @@ heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, ]
 
 # save this for permanova
 #permanova_matrix <- heatmap_matrix[, keep_metrics]
-#save(permanova_matrix, file = here("Data", "permanova_matrix.Rdata"))
+write.csv(permanova_matrix, file = here("Data", "permanova_matrix.csv"))
+save(permanova_matrix, file = here("Data", "permanova_matrix.Rdata"))
 
 #build the Row Annotation and Category Labels ---
 metric_names <- rownames(heatmap_matrix_scaled)
