@@ -1,0 +1,129 @@
+```{r}
+library(dplyr)
+library(purrr)
+library(lme4) 
+
+# Ensure variables are factors and drop rows missing ED50 or site data
+df_modeling <- annot_master %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 2:15)
+
+# Loop through and compute AIC using lmer()
+aic_mixed_all <- map_df(k_cols, function(k_name) {
+  
+  # Fit Mixed Model: ED50 ~ Cluster fixed effect + Site/Run random effect
+  # REML = FALSE is CRITICAL here because we are comparing models with different fixed effects
+  model <- lmer(as.formula(paste("ED50 ~", k_name, "+ (1 | site)")), 
+                data = df_modeling, 
+                REML = FALSE)
+  
+  data.frame(
+    Model = k_name,
+    AIC = AIC(model)
+  )
+})
+
+# Arrange from lowest AIC (best) to highest
+aic_mixed_all <- aic_mixed_all %>% arrange(AIC)
+print("--- Full Dataset Mixed Model Comparisons ---")
+print(aic_mixed_all)
+
+k12_m <- lmer(ED50 ~ K_12 + (1 | site), data = df_modeling, REML = FALSE)
+k13_m <- lmer(ED50 ~ K_13 + (1 | site), data = df_modeling, REML = FALSE)
+k2_m  <- lmer(ED50 ~ K_2 + (1 | site),  data = df_modeling, REML = FALSE)
+
+# 2. Run the comparative ANOVA (Likelihood Ratio Test)
+anova(k2_m, k12_m, k13_m)
+
+
+
+library(emmeans)
+
+# 1. Calculate the estimated marginal means for each cluster group
+k12_means <- emmeans(k12_m, specs = ~ K_12)
+
+# 2. Run the pairwise post-hoc comparisons with Tukey adjustment
+k12_posthoc <- pairs(k12_means, adjust = "tukey")
+
+# 3. View the results
+# (Optional: filter for only statistically significant differences)
+k12_posthoc_df <- as.data.frame(k12_posthoc)
+
+significant_differences <- k12_posthoc_df %>% 
+  filter(p.value < 0.05)
+
+print(significant_differences)
+plot(k12_means, comparisons = TRUE)
+```
+
+```{r}
+#because we are getting singular it boundary error, exploring dropping some groups that have zero site variances
+table(df_modeling$K_12)
+
+# Filter out clusters that have fewer than 5 observations globally
+df_filtered_clusters <- df_modeling %>%
+  group_by(K_12) %>%
+  filter(n() >= 8) %>% #below causes signular fit boundary error
+  ungroup()
+
+# Re-run the mixed model on the filtered data
+k12_m_clean <- lmer(ED50 ~ K_12 + (1 | site), data = df_filtered_clusters, REML = FALSE)
+summary(k12_m_clean)
+anova(k12_m_clean)
+# 1. Calculate the estimated marginal means for each cluster group
+k12_clean_means <- emmeans(k12_m_clean, specs = ~ K_12)
+
+# 2. Run the pairwise post-hoc comparisons with Tukey adjustment
+k12_clean_posthoc <- pairs(k12_clean_means, adjust = "tukey")
+
+# 3. View the results
+# (Optional: filter for only statistically significant differences)
+k12_clean_posthoc_df <- as.data.frame(k12_clean_posthoc)
+significant_differences <- k12_clean_posthoc_df %>% 
+  filter(p.value < 0.05)
+print(significant_differences)
+plot(k12_means, comparisons = TRUE)
+#check boxplot
+#plot ED50 by cluster assignment, here K=12
+
+# --- 2. Clean Data & Reorder Factor Levels ---
+df_sorted <- df_filtered_clusters %>%
+  filter(ED50 < 45) %>% 
+  mutate(
+    # Force K_12 to follow your specific sequence on the x-axis
+    K_12_sorted = factor(as.character(K_12), levels = custom_order),
+    species_color = toupper(trimws(species))
+  ) %>%
+  # Drop any rows that don't match your custom level list (if any exist)
+  filter(!is.na(K_12_sorted))
+
+# --- 3. Build the Single Unfaceted Plot ---
+ggplot(df_sorted, aes(x = K_12_sorted, y = ED50)) +
+  # One clean boxplot per cluster step along your custom x-axis order
+  geom_boxplot(alpha = 0.3, outlier.shape = NA, color = "black", fill = "grey98") +
+  
+  # Scatter individual dots colored by species
+  geom_jitter(aes(color = species_color, shape = site), width = 0.2, alpha = 0.8, size = 2.5) +
+  
+  theme_bw(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(face = "bold", size = 11),
+    legend.position = "bottom"
+  ) +
+  labs(
+   # title = "ED50 Phenotypes Ordered by Custom Cluster Sequence",
+    x = "K_12 Cluster Assignment",
+    y = expression(ED[50]*" Score"),
+    color = "Species"
+    
+  )
+
+```
+```{r}
+#OR, remove the sites w low variances
+table(df_modeling$site)
+```
+

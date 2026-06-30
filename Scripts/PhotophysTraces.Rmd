@@ -198,7 +198,7 @@ sum_photo_long <- sum_photo %>%
 
 #Select Ks
 ```{r}
-cluster_results <- lapply(1:9, function(k) {
+cluster_results <- lapply(2:15, function(k) {
 
   clusters <- cutree(cbb$hclust, k = k)
 
@@ -246,7 +246,7 @@ df_with_clusters <- df_with_clusters %>%
 
 cluster_summary<- df_with_clusters %>%
   distinct(SampleID_clean, .keep_all = TRUE) %>% 
-  dplyr::select(SampleID_clean, site, species, genotype, K_2:K15)
+  dplyr::select(SampleID_clean, site, species, genotype, K_2:K_15)
 
 cluster_summary%>% 
   write.csv(file = here("Data", "expt_data_clustered.csv"), row.names = FALSE)

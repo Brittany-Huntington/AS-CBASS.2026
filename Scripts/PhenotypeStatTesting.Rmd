@@ -108,7 +108,6 @@ ggplot(lda_data, aes(x = LD1, y = LD2, color = Cluster)) +
 
 
 ```{r}
-# Install lme4 if you don't have it: install.packages("lme4")
 library(dplyr)
 library(purrr)
 library(lme4) 
@@ -146,6 +145,17 @@ k2_m  <- lmer(ED50 ~ K_2 + (1 | site),  data = df_modeling, REML = FALSE)
 
 # 2. Run the comparative ANOVA (Likelihood Ratio Test)
 anova(k2_m, k12_m, k13_m)
+#summary
+summary(k12_m)
+r2(k12_m)
+summary(k2_m)
+
+# 2. Extract Nakagawa's R2 values
+print("--- K_12 Mixed Model R2 Breakdown ---")
+
+
+print("--- K_2 Mixed Model R2 Breakdown ---")
+r2(k2_m)
 
 
 
