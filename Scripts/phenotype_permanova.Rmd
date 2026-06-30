@@ -1,0 +1,22 @@
+```{r}
+library(dplyr)
+library(here)
+library(vegan)
+
+permanova_matrix <- load(filename = here("Data", "permanova_matrix.Rdata") #unscaled matrix
+annotation_col <- load( filename = here( "Data", "annotation_col.Rdata")) #metadata
+
+
+#Z-score scale
+scaled_permanova_matrix <- scale(permanova_matrix)
+
+# K=11 was best model in lmer (see script called ED50_and_K_cluster_lmer)
+group_permanova <- adonis2(scaled_permanova_matrix ~ K_11, 
+                           data = annotation_col, 
+                           method = "euclidean", 
+                           permutations = 999)
+
+print(group_permanova)
+
+```
+
