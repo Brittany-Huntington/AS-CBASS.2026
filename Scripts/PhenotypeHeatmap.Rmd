@@ -1,6 +1,7 @@
 ```{r}
 library(pheatmap)
 library(dplyr)
+library(here)
 load(here("Data","cbb_AS26_expt_1000bs.RData"))
 load(here("Data", "Alls.cor_clean.RData"))
 seqID<-read.csv(here("Data", "TUT_seq.csv"))
@@ -18,6 +19,7 @@ cluster_summary<-read.csv(here("Data", "expt_data_clustered.csv"))
 annot_master <- cluster_summary %>%
   mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
   left_join(ed50_data, by = "SampleID_clean")
+#write.csv(here("Data", "cluster_and_ed50_data.csv"))
 
 # Grab the hclust object directly from your pvclust output
 my_hclust <- cbb$hclust
@@ -76,13 +78,13 @@ annotation_col <- annotation_col %>%
 # annotation_col$SampleID_clean <- NULL
 
 
-# --- 1. Filter out Fm/Fo and isolate your 9 metrics ---
+# filter out Fm/Fo and isolate your 9 metrics ---
 metric_names <- rownames(heatmap_matrix_scaled)
 keep_metrics <- metric_names[!metric_names %in% c("Fm", "Fo", "fm", "fo")]
 heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, ]
 
 
-# --- 2. Build the Row Annotation and Category Labels ---
+#build the Row Annotation and Category Labels ---
 metric_names <- rownames(heatmap_matrix_scaled)
 
 annotation_row <- data.frame(Metric = case_when(
@@ -100,7 +102,7 @@ annotation_row <- data.frame(Metric = case_when(
 rownames(annotation_row) <- metric_names
 
 
-# --- 3. CRITICAL: Sort both the Matrix and Annotation by Metric Category ---
+# sort both the Matrix and Annotation by Metric Category ---
 # This orders the metrics alphabetically by their clean group names
 sorted_order <- order(annotation_row$Metric)
 
@@ -111,7 +113,7 @@ annotation_row        <- annotation_row[sorted_order, , drop = FALSE]
 my_palette <- colorRampPalette(c("darkblue", "white", "darkred"))(100)
 my_breaks <- seq(-3, 3, length.out = 101)
 
-# --- 4. Export the Sorted Heatmap ---
+#plot heatmap
 jpeg(
   file = here("Plots", "Sorted_Grouped_Physiological_Heatmap_ks.jpg"), 
   width = 12, 
