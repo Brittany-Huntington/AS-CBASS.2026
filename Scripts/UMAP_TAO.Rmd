@@ -44,7 +44,7 @@ set.seed(123)
 ```{r loading data, echo=F}
 photophys <- read.csv(here("Data","AS26_PhenotypingData_expt.csv"), row.names = 1)
 
-photophys_combined
+#photophys_combined
 
 ```
 
@@ -100,7 +100,7 @@ umap_plotting_data <- data.frame(
       TRUE                           ~ str_to_upper(substr(str_extract(SampleID, "(?<=_).+?(?=\\.)"), 1, 4))
     ),
     
-    # Create a clean plotting label: Use numeric Site for Tut, or "FJ" / Species short-code for Fiji
+    # Create a clean plotting label: Use numeric Site for Tut, or "FJ"
     PlotLabel = case_when(
       is_fiji ~ "F", 
       TRUE    ~ str_extract(SampleID, "(?<=t)\\d+(?=_)")
@@ -132,9 +132,9 @@ ggplot(umap_plotting_data, aes(x = UMAP1, y = UMAP2)) +
   # Customizing scales if you want clear separation of colors
   scale_color_brewer(palette = "Set1") + 
   
-  labs(title = "Photophysiology UMAP",
-       subtitle = "Fiji (F) and Tutuila (Site #) Samples",
-       x = "UMAP Dimension 1",
+  #labs(title = "Photophysiology UMAP",
+   #    subtitle = "Fiji (F) and Tutuila (Site #) Samples",
+    labs(   x = "UMAP Dimension 1",
        y = "UMAP Dimension 2",
        color = "Species") +
   theme_minimal() +
@@ -222,7 +222,7 @@ ggplot(fiji_plotting_data, aes(x = UMAP1, y = UMAP2, color = Species)) +
 ### Load Data and scale 
 ```{r}
 set.seed(123)
-longphoto <- as.data.frame(t(photophys_combined))
+longphoto <- as.data.frame(t(photophys))
 colnames(longphoto) <- longphoto[1,] 
 longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
 longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
@@ -268,7 +268,7 @@ ppParam=names(photophys_scaled.)
 
 #Incorporate ED50, and ID correlates
 ```{r}
-ed=read.csv(file = "Data/AS26_ED50_CI_BIC_TAO.csv")
+ed=read.csv(file = here("Data", "AS26_ED50_CI_BIC_TAO.csv"))
 allphoto.ed=allphoto. %>% mutate(
   Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
   Colony =(str_extract(SampleID, "(?<=_).+?(?=\\.)")),
@@ -276,7 +276,7 @@ allphoto.ed=allphoto. %>% mutate(
   Genotype=paste0(str_to_upper(Species),
                   "_s",formatC(Site,flag=0,width=2),
                   "_c",formatC(as.numeric(substr(Colony,5,6)),flag=0,width=2))) %>% 
-  left_join(ed,by="Genotype") %>% 
+  left_join(ed,by="SpeciesID_clean") %>% 
   filter(ED50<40,ED50ci95<=2)
 #allphoto.ed$ED50
 
