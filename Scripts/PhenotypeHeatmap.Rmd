@@ -19,7 +19,7 @@ cluster_summary<-read.csv(here("Data", "expt_data_clustered.csv"))
 annot_master <- cluster_summary %>%
   mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
   left_join(ed50_data, by = "SampleID_clean")
-#write.csv(here("Data", "cluster_and_ed50_data.csv"))
+write.csv(annot_master, here("Data", "cluster_and_ed50_data.csv"))
 
 # Grab the hclust object directly from your pvclust output
 my_hclust <- cbb$hclust
@@ -59,9 +59,7 @@ annotation_col <- annot_master %>%
   # Select metadata, your cluster level, AND the continuous ED50 column
   dplyr::select(SampleID_clean, species, K_10:K_15, ED50)
 
-annotation_col <- annotation_col %>%
-  mutate(ED50_capped = ifelse(ED50 > 39, 39, ED50)) %>%
-  dplyr::select(-ED50)
+
 # Establish row names for pheatmap and strip the raw ID column
 annotation_col <- as.data.frame(annotation_col)
 rownames(annotation_col) <- annotation_col$SampleID_clean

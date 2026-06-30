@@ -1,0 +1,151 @@
+```{r}
+library(dplyr)
+library(here)
+library(ggplot2)
+library(performance)
+library(vegan)
+library(emmeans)
+
+annot_master<-read.csv(here("Data", "cluster_and_ed50_data.csv"))
+df_modeling <- annot_master %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 2:15)
+```
+
+```{r}
+#plot ED50 by cluster assignment, here K=12
+#ordering by host 
+#custom_order <- c("1", "2", "3", "4", "10", "11", "5", "6", "7", "8", "9", "12")
+custom_order <- c("1", "2", "3", "4",  "9", "7","10", "11", "5", "6",  "8") #make plot then change these if needed
+
+# --- 2. Clean Data & Reorder Factor Levels ---
+df_sorted <- df_modeling %>%
+  mutate(
+    # enter the K here (i.e. K_11) to follow your specific sequence on the x-axis
+    K_sorted = factor(as.character(K_11), levels = custom_order),
+    species_color = toupper(trimws(species))
+  ) %>%
+  # Drop any rows that don't match your custom level list (if any exist)
+  filter(!is.na(K_sorted))
+
+# --- 3. Build the Single Unfaceted Plot ---
+ggplot(df_sorted, aes(x = K_sorted, y = ED50)) +
+  # One clean boxplot per cluster step along your custom x-axis order
+  geom_boxplot(alpha = 0.3, outlier.shape = NA, color = "black", fill = "grey98") +
+  
+  # Scatter individual dots colored by species
+  geom_jitter(aes(color = species_color, shape = site), width = 0.2, alpha = 0.8, size = 2.5) +
+  
+  theme_bw(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(face = "bold", size = 11),
+    legend.position = "bottom"
+  ) +
+  labs(
+   # title = "ED50 Phenotypes Ordered by Custom Cluster Sequence",
+    x = "K Cluster Assignment",
+    y = expression(ED[50]*" Score"),
+    color = "Species"
+  ) #K=4, groups 1 and 2 are different. p =0.009
+#k=11, group 5 is different from 1 3 and 4
+
+# Save the plot with a wide canvas ratio to accommodate the 12 columns
+#ggsave(here("Plots", "ED50_K12_boxplot_Sorted.png"), plot = plot_sorted_k12, width = 11, height = 7, dpi = 300)
+```
+
+
+```{r}
+# Loop through and compute AIC using lmer()
+aic_mixed_all <- map_df(k_cols, function(k_name) {
+  
+  # Fit Mixed Model: ED50 ~ Cluster fixed effect + Site/Run random effect
+  # REML = FALSE is CRITICAL here because we are comparing models with different fixed effects
+  model <- lmer(as.formula(paste("ED50 ~", k_name, "+ (1 | site)")), 
+                data = df_modeling, 
+                REML = FALSE)
+  
+  data.frame(
+    Model = k_name,
+    AIC = AIC(model)
+  )
+})
+
+# Arrange from lowest AIC (best) to highest
+aic_mixed_all <- aic_mixed_all %>% arrange(AIC)
+print("--- Full Dataset Mixed Model Comparisons ---")
+print(aic_mixed_all) #K11, K12, K13, K14, K4
+
+k11_m <- lmer(ED50 ~ K_11 + species + (1 | site), data = df_modeling, REML = FALSE)
+k12_m <- lmer(ED50 ~ K_12 + species + (1 | site), data = df_modeling, REML = FALSE)
+k4_m  <- lmer(ED50 ~ K_4 + species + (1 | site),  data = df_modeling, REML = FALSE)
+
+# 2. Run the comparative ANOVA (Likelihood Ratio Test)
+anova(k11_m, k12_m, k4_m)
+#Moving from 4 categories to 11 categories sig improves the model fit ($\chi^2 = 18.22, Df = 7, p = 0.0110$).  AIC drops from 99.23 to 95.00.Adding a 12th category does not significantly improve the model ($\chi^2 = 0.16, Df = 1, p = 0.6858$). The AIC actually goes up (from 95.00 to 96.84), meaning the extra complexity isn't justified.
+summary(k11_m)
+summary(k12_m)
+summary(k4_m)
+
+r2(k11_m) #conditional () = 0.514, marginal (sites) = 0.242. So, fixed effect explains 17% of variance, site explains 22.5% (39.4-16.9)
+r2(k12_m) #conditional () = 0.395, marginal () = 0.170
+r2(k4_m) #conditional () = 0.379, marginal () = 0.087
+# 1. Calculate the estimated marginal means for each cluster group
+k11_means <- emmeans(k11_m, specs = ~ K_11)
+
+
+# 2. Run the pairwise post-hoc comparisons with Tukey adjustment
+k11_posthoc <- pairs(k11_means, adjust = "tukey")
+
+# 3. View the results
+# (Optional: filter for only statistically significant differences)
+k11_posthoc_df <- as.data.frame(k11_posthoc)
+
+significant_differences <- k11_posthoc_df %>% 
+  filter(p.value < 0.05)
+
+print(significant_differences)
+pairs(emmeans(k11_m, ~ K_11))
+plot(k11_means, comparisons = TRUE)
+
+# Plot residuals against fitted values
+plot(k11_m, type = c("p", "smooth"), 
+     xlab = "Fitted Values (Predicted ED50)", 
+     ylab = "Residuals")
+
+res <- residuals(k11_m)
+
+# Create Q-Q plot
+qqnorm(res, main = "Normal Q-Q Plot of Residuals")
+
+custom_order <- c("1", "2", "3", "4",  "9", "7","10", "11", "5", "6",  "8") #make plot then change these if needed
+
+#change order
+df_modeling$K_11 <- factor(df_modeling$K_11, levels = custom_order)
+
+# 2. Re-run emmeans (it will automatically adopt the new factor order)
+k11_predicted <- as.data.frame(emmeans(k11_m, ~ K_11))
+
+
+# 2. Plot raw data as points, and model predictions as larger points with error bars
+ggplot() +
+  # Raw data points (colored by site to see the random effect)
+  geom_jitter(data = df_modeling, aes(x = K_11, y = ED50, color = species, shape = site), alpha = 0.5, width = 0.2, size = 3) +
+  # Model predictions (Emmeans)
+  geom_point(data = k11_predicted, aes(x = K_11, y = emmean), size = 3) +
+  geom_errorbar(data = k11_predicted, aes(x = K_11, ymin = lower.CL, ymax = upper.CL), 
+                color = "black", width = 0.2, linewidth = 0.5) +
+  theme_minimal() +
+  labs(title = "Model Fit: Raw ED50 Data vs. Model Predictions",
+       x = "K_11 Category",
+       y = "ED50")
+```
+
+
+
+```{r}
+#
+```
+
