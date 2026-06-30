@@ -1,11 +1,20 @@
 ```{r}
+#rm(list = ls())
 library(dplyr)
 library(here)
 library(vegan)
 
-permanova_matrix <- load(here("Data", "permanova_matrix.Rdata")) #unscaled matrix
-annotation_col <- load(here( "Data", "annotation_col.Rdata")) #metadata
+load(here("Data", "permanova_matrix.Rdata")) #unscaled matrix
+load(here( "Data", "annotation_col.Rdata")) #metadata
 
+numeric_metrics <- keep_metrics[keep_metrics %in% colnames(heatmap_matrix)]
+permanova_matrix <- as.matrix(heatmap_matrix[, numeric_metrics])
+
+# check that everything is numeric
+storage.mode(permanova_matrix) <- "numeric"
+
+#scale
+scaled_permanova_matrix <- scale(permanova_matrix)
 
 #Z-score scale
 scaled_permanova_matrix <- scale(permanova_matrix)
@@ -18,5 +27,5 @@ group_permanova <- adonis2(scaled_permanova_matrix ~ K_11,
 
 print(group_permanova)
 
-```
+
 
