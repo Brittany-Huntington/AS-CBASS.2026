@@ -4,23 +4,35 @@ library(dplyr)
 library(here)
 library(vegan)
 library(pairwiseAdonis)
-load(here("Data", "permanova_matrix_clean.Rdata")) #unscaled matrix
-load(here( "Data", "annotation_col.Rdata")) #metadata
 
+load(here("Data", "permanova_matrix_clean.Rdata")) # unscaled matrix
+load(here("Data", "annotation_col.Rdata"))         # metadata
 
 df_prep <- as.data.frame(permanova_matrix)
 
-#force every column to be numeric using base R 
+# --- 1. Save the sample row names before they get erased ---
+sample_labels <- rownames(df_prep)
+
+# Force every column to be numeric
 clean_df <- as.data.frame(lapply(df_prep, function(x) as.numeric(as.character(x))))
 
-#drop any columns that are not numeric
+# --- 2. Put the sample row names back on the clean data frame ---
+rownames(clean_df) <- sample_labels
+
+# Drop any columns that are entirely NA
 clean_df <- clean_df[, colSums(is.na(clean_df)) < nrow(clean_df), drop = FALSE]
 
-#if any rows still have random missing values, omit them so scale() works
+# Omit any rows with missing values so scale() doesn't fail
 clean_df <- na.omit(clean_df)
 
-#convert to a pure numeric matrix and apply Z-score scaling
+# --- 3. Finalize and Scale with Labels Intact ---
 final_permanova_matrix <- as.matrix(clean_df)
+
+# Z-score scaling (scale() preserves both row and column names on matrices!)
 scaled_permanova_matrix <- scale(final_permanova_matrix)
+
+# --- 4. Double check metadata alignment ---
+# Ensure your metadata rows exactly match your filtered matrix rows
+annotation_col_filtered <- annotation_col[rownames(scaled_permanova_matrix), , drop = FALSE]
 ```
 
