@@ -2,7 +2,7 @@
 library(pheatmap)
 library(dplyr)
 library(here)
-load(here("Data","cbb_AS26_expt_1000bs.RData"))
+load(here("Data","cbb_AS26_expt_1000bs_updated.RData"))
 load(here("Data", "Alls.cor_clean.RData"))
 seqID<-read.csv(here("Data", "TUT_seq.csv"))
 ed50_data<-read.csv(here("Data", "edsdf-all.csv"))%>%

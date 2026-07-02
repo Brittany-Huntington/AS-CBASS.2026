@@ -23,7 +23,7 @@ library(here)
 ```{r photophys}
 photophys <- read.csv(here("Data","AS26_PhenotypingData_expt.csv"), row.names = 1)
 photophys <- photophys[1:1456, ] # Keep only the first 1456 rows
-load(here("Data","cbb_AS26_expt_1000bs.RData"))
+load(here("Data","cbb_AS26_expt_1000bs_updated.RData"))
 sample_metadata <- read.csv(here("Data","AS26_MAPPmetadata_expt.csv"), check.names = F)
 # cluster object from Dendrogram.Rmd is called cbb
 clusterer <- cbb
