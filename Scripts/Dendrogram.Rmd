@@ -62,68 +62,83 @@ sample_metadata <- read.csv(here("Data", "AS26_MAPPmetadata_expt.csv"), check.na
 # Making dendrogram 
 
 ```{r dendro}
+# --- 1. Load and Filter Raw Data Format ---
 photophys <- read.csv(here("Data", "AS26_PhenotypingData_expt.csv"), row.names = 1)
-#photodeep <- read.csv('Outputs/AS26_DepthGradientPhenotypingData.csv', row.names =1)
-#photophys <- full_join(photophys, photodeep)
+photophys <- photophys[1:1456, ]
 
+photophys <- photophys %>% 
+  filter(!str_starts(metric, "m")) %>%
+  filter(!metric %in% c("Fo", "Fm", "fo", "fm"))
+
+# --- 2. Transpose and Clean Structural Meta Headers ---
 longphoto <- as.data.frame(t(photophys))
-colnames(longphoto) <- longphoto[1,] 
 
-
-longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
-longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
+# Pull SampleID out from row names IMMEDIATELY while columns are still uniquely named (V1, V2...)
 longphoto$SampleID <- rownames(longphoto)
-longphoto <- longphoto %>% relocate(SampleID)
 
-#remove the duplicate site 7s
+# Dynamically drop metadata headers from the rows
+meta_rows <- which(rownames(longphoto) %in% c("metric", "stage", "col", "uni", "metrix"))
+if(length(meta_rows) > 0) {
+  longphoto <- longphoto[-meta_rows, ]
+}
+
+# --- 3. Filter Duplicates & Unwanted Samples FIRST (Using unique column names) ---
 longphoto <- longphoto %>%
-filter(
-    # Look for ICRA or AHYA anywhere in the name, AND 005 at the end
+  filter(
+    # Remove old t7 duplicates
     !(startsWith(SampleID, "t7") & grepl("icra|ahya", SampleID) & endsWith(SampleID, "005r.processed.csv")),
+    !(startsWith(SampleID, "t7") & grepl("aglo|aabr", SampleID) & endsWith(SampleID, "002r.processed.csv")),
     
-    # Look for AGLO or AABR anywhere in the name, AND 002 at the end
-    !(startsWith(SampleID, "t7") & grepl("aglo|aabr", SampleID) & endsWith(SampleID, "002r.processed.csv"))
+    # Drop any file that contains ".copy"
+    !grepl("\\.copy", SampleID, ignore.case = TRUE),
+    
+    # Explicitly drop the "t9_icra3" sample
+    !grepl("t9_icra3", SampleID, ignore.case = TRUE)
   )
 
-longphoto$SampleID_clean <- longphoto$SampleID %>%
-  tolower() %>%
-  sub("\\.processed\\.csv$", "", .) %>%
-  sub("\\._?\\d{2,3}r$", "", .) %>%   # handles ._02r OR .002r
-  trimws()
+# --- 4. NOW it is safe to assign the clean column headers ---
+# Create unique metric names combining metric + stage + col from our original photophys file
+metric_names <- paste(photophys$metric, photophys$stage, photophys$col, sep=".")
+colnames(longphoto)[1:length(metric_names)] <- metric_names
 
-#check if duplicates
-any(duplicated(longphoto$SampleID_clean))
-
-
-valid_ids <- sample_metadata$UniqueID
-
+# --- 5. Build Clean String Matching Identifiers ---
 longphoto <- longphoto %>%
-  filter(SampleID_clean %in% valid_ids)
+  mutate(
+    SampleID_clean = SampleID %>%
+      tolower() %>%
+      stringr::str_replace("\\.processed\\.csv$", "") %>%
+      stringr::str_replace("\\._?\\d{2,3}r$", "") %>%  
+      trimws()
+  )
 
-#longphoto <- longphoto %>%
-#  filter(!grepl("^[aoiAOI]", SampleID_clean))
+longphoto <- longphoto %>% relocate(SampleID, SampleID_clean)
 
-#save this long format data
-
-#write.csv(here("Data", "longphoto_clean.csv"), row.names = FALSE)
+print(any(duplicated(longphoto$SampleID_clean)))
 ```
+```{r}
+# --- 5. Separate Text Metadata from Pure Numerical Metrics ---
+sample_names <- longphoto$SampleID_clean
+metric_cols  <- setdiff(names(longphoto), c("SampleID", "SampleID_clean"))
 
+# Force only metric values into a numeric data structure
+fullyears <- as.data.frame(lapply(longphoto[metric_cols], function(x) {
+  as.numeric(as.character(x))
+}))
+rownames(fullyears) <- sample_names
 
-```{r dendro}
-fullyears <- longphoto 
+# --- 6. Drop Bad Columns ---
+bad_cols <- colSums(is.na(fullyears)) == nrow(fullyears) | sapply(fullyears, function(x) sd(x, na.rm = TRUE) == 0)
+fullyears <- fullyears[, !bad_cols]
 
+# --- 7. Run Pre-Processing Transformations ---
+Alls.cntn    <- fullyears
+Alls.transit <- preProcess(x = Alls.cntn, rangeBounds = c(0, 1), method = "range")
+Alls.trans   <- predict(Alls.transit, Alls.cntn)
 
-fullyears <- data.frame(fullyears[, colSums(is.na(fullyears)) == 0])
+#Alls.preproc<-Alls.trans[,-nearZeroVar(Alls.trans)] # sometimes can throw an error, could be excluded 
 
-#fullyears <- fullyears %>% select(-contains(c('Fo', "Fm"))) # removing Fo and Fm metrics because already included in Quant calculations. Script used to also remove "Con", but since instrument variability were normalized, don't need to remove.
-dim(fullyears)
-Alls.cntn<-fullyears
-Alls.transit<-preProcess(x=Alls.cntn, rangeBounds = c(0,1), method="range")
-Alls.trans<-predict(Alls.transit, Alls.cntn)
-Alls.preproc<-Alls.trans[,-nearZeroVar(Alls.trans)] # sometimes can throw an error, could be excluded 
-
-dim(Alls.preproc)
-Alls.cor<-Alls.preproc 
+dim(Alls.trans)
+Alls.cor<-Alls.trans 
 Alls.cor[,2:ncol(Alls.cor)] <- lapply(Alls.cor[,2:ncol(Alls.cor)], as.numeric)
 Alls.cor <- Alls.cor[,-1]
 #Alls.cor <- na.omit(Alls.cor) #had to remove this becuae it resulted in 0 for everything
@@ -138,7 +153,7 @@ save(Alls.cor_clean, file = here("Data", "Alls.cor_clean.RData"))
 
 ```{r dendro}
 cbb<-pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=1000)
-save(cbb, file = here("Data", "cbb_AS26_expt_1000bs.RData"))
+save(cbb, file = here("Data", "cbb_AS26_expt_1000bs_updated.RData"))
 ```
 
 
