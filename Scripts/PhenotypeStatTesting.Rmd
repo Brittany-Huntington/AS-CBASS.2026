@@ -1,8 +1,8 @@
 ```{r}
 library(dplyr)
 library(lme4)
-library(lmerTest) # Gives you p-values for the mixed model
-library(multcomp) # For the post-hoc pairwise comparisons
+library(lmerTest) 
+library(multcomp) 
 
 #flatten data
 df_clean_numeric <- df_with_clusters %>%

@@ -3,6 +3,14 @@ library(dplyr)
 library(purrr)
 library(lme4) 
 
+#Filter dataset for just IRCA and clean factors
+df_irca <- annot_master %>%
+  filter(tolower(species) == "irca") %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 2:15)
+
 # Ensure variables are factors and drop rows missing ED50 or site data
 df_modeling <- annot_master %>%
   mutate(across(c(starts_with("K_"), site), as.factor)) %>%
