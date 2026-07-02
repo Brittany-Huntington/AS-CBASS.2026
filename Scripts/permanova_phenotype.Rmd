@@ -34,5 +34,14 @@ scaled_permanova_matrix <- scale(final_permanova_matrix)
 # --- 4. Double check metadata alignment ---
 # Ensure your metadata rows exactly match your filtered matrix rows
 annotation_col_filtered <- annotation_col[rownames(scaled_permanova_matrix), , drop = FALSE]
+
+# Drop the mismatched NA row from BOTH objects ---
+# Identify which rows are valid (not NA) in your filtered metadata
+valid_rows <- !is.na(annotation_col_filtered$species)
+
+# Sync both structures simultaneously 
+annotation_col_filtered <- annotation_col_filtered[valid_rows, , drop = FALSE]
+scaled_permanova_matrix <- scaled_permanova_matrix[valid_rows, , drop = FALSE]
+
 ```
 
