@@ -83,9 +83,15 @@ keep_metrics <- metric_names[!metric_names %in% c("Fm", "Fo", "fm", "fo")]
 heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, ]
 
 # save this for permanova
-#permanova_matrix <- heatmap_matrix[, keep_metrics]
-write.csv(permanova_matrix, file = here("Data", "permanova_matrix.csv"))
-save(permanova_matrix, file = here("Data", "permanova_matrix.Rdata"))
+permanova_matrix <- heatmap_matrix[, colnames(heatmap_matrix) %in% keep_metrics]
+
+# 2. Force it to be an entirely numeric data structure
+permanova_matrix <- as.matrix(permanova_matrix)
+storage.mode(permanova_matrix) <- "numeric"
+
+# 3. Save these verified objects cleanly
+write.csv(permanova_matrix, file = here("Data", "permanova_matrix_clean.csv"), row.names = TRUE)
+save(permanova_matrix, file = here("Data", "permanova_matrix_clean.Rdata"))
 
 #build the Row Annotation and Category Labels ---
 metric_names <- rownames(heatmap_matrix_scaled)
