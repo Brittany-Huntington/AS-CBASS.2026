@@ -22,6 +22,7 @@ library(here)
 
 ```{r photophys}
 photophys <- read.csv(here("Data","AS26_PhenotypingData_expt.csv"), row.names = 1)
+photophys <- photophys[1:1456, ] # Keep only the first 1456 rows
 load(here("Data","cbb_AS26_expt_1000bs.RData"))
 sample_metadata <- read.csv(here("Data","AS26_MAPPmetadata_expt.csv"), check.names = F)
 # cluster object from Dendrogram.Rmd is called cbb
@@ -29,12 +30,17 @@ clusterer <- cbb
 
 # reshape to long
 longphoto_shortie <- photophys %>% 
-  dplyr::select(-uni, -metrix) %>%
+  select(-c(uni, metrix)) %>%
   pivot_longer(
     cols = -c(metric, stage, col),
     names_to = "SampleID",
-    values_to = "Value"
-  )
+    values_to = "Value")
+  # )%>%
+  # dplyr::select(-Fo, -Fm)
+
+longphoto_shortie <- longphoto_shortie %>% 
+  filter(!str_starts(metric, "m")) # Drops any metric starting with 'm'
+
 longphoto_shortie <- longphoto_shortie %>%
   filter(
     !(startsWith(SampleID, "t7") & grepl("icra|ahya", SampleID) & grepl("005", SampleID)),
@@ -94,10 +100,11 @@ longphoto_wide <- longphoto_shortie %>%
     id_cols = c(stage, col, SampleID, SampleID_clean),
     names_from = metric,
     values_from = Value
-  )
+  ) %>%
+  dplyr::select(-Fo, -Fm)
 
 
-longphoto_wide <- longphoto_wide[,1:18]
+#longphoto_wide <- longphoto_wide[,1:18]
 ```
 
 #make df with clusters 3-8
