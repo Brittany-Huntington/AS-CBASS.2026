@@ -5,8 +5,11 @@ library(ggplot2)
 library(performance)
 library(vegan)
 library(emmeans)
+library(lme4)
+library(lmerTest)
+library(broom.mixed)
 
-annot_master<-read.csv(here("Data", "cluster_and_ed50_data.csv"))
+annot_master<-read.csv(here("Data", "cluster_and_ed50_data.csv")) #from phenotype_heatmap script
 df_modeling <- annot_master %>%
   mutate(across(c(starts_with("K_"), site), as.factor)) %>%
   filter(!is.na(ED50), !is.na(site))
@@ -15,16 +18,336 @@ k_cols <- paste0("K_", 2:15)
 ```
 
 ```{r}
-#plot ED50 by cluster assignment, here K=12
+spp_m <- lmer(ED50 ~ species + (1 | site), data = df_modeling, REML = TRUE)
+
+#does K explain ED50 variation
+k2m <- lmer(ED50 ~ K_2 + (1 | site), data = df_modeling, REML = TRUE)
+k3m <- lmer(ED50 ~ K_3 + (1 | site), data = df_modeling, REML = TRUE)
+k4m <- lmer(ED50 ~ K_4 + (1 | site), data = df_modeling, REML = TRUE)
+k5m <- lmer(ED50 ~ K_5 + (1 | site), data = df_modeling, REML = TRUE)
+k6m <- lmer(ED50 ~ K_6 + (1 | site), data = df_modeling, REML = TRUE)
+k7m <- lmer(ED50 ~ K_7 + (1 | site), data = df_modeling, REML = TRUE)
+k8m <- lmer(ED50 ~ K_8 + (1 | site), data = df_modeling, REML = TRUE)
+k9m <- lmer(ED50 ~ K_9 + (1 | site), data = df_modeling, REML = TRUE)
+k10m <- lmer(ED50 ~ K_10 + (1 | site), data = df_modeling, REML = TRUE)
+k11m <- lmer(ED50 ~ K_11 + (1 | site), data = df_modeling, REML = TRUE)
+k12m <- lmer(ED50 ~ K_12 + (1 | site), data = df_modeling, REML = TRUE)
+k13m <- lmer(ED50 ~ K_13 + (1 | site), data = df_modeling, REML = TRUE)
+k14m <- lmer(ED50 ~ K_14 + (1 | site), data = df_modeling, REML = TRUE)
+
+#does adding species make model better (even though some confounded spp, site, and group)
+k2ms <- lmer(ED50 ~ species + K_2 + (1 | site), data = df_modeling, REML = TRUE)
+k3ms <- lmer(ED50 ~ species + K_3 + (1 | site), data = df_modeling, REML = TRUE)
+k4ms <- lmer(ED50 ~ species + K_4 + (1 | site), data = df_modeling, REML = TRUE)
+km5s <- lmer(ED50 ~ species + K_5 + (1 | site), data = df_modeling, REML = TRUE)
+k6ms <- lmer(ED50 ~ species + K_6 + (1 | site), data = df_modeling, REML = TRUE)
+k7ms <- lmer(ED50 ~ species + K_7 + (1 | site), data = df_modeling, REML = TRUE)
+k8ms <- lmer(ED50 ~ species + K_8 + (1 | site), data = df_modeling, REML = TRUE)
+k9ms <- lmer(ED50 ~ species + K_9 + (1 | site), data = df_modeling, REML = TRUE)
+k10ms <- lmer(ED50 ~ species + K_10 + (1 | site), data = df_modeling, REML = TRUE)
+k11ms <- lmer(ED50 ~ species + K_11 + (1 | site), data = df_modeling, REML = TRUE)
+k12ms <- lmer(ED50 ~ species + K_12 + (1 | site), data = df_modeling, REML = TRUE)
+k13ms <- lmer(ED50 ~ species + K_13 + (1 | site), data = df_modeling, REML = TRUE)
+k14ms <- lmer(ED50 ~ species + K_14 + (1 | site), data = df_modeling, REML = TRUE)
+
+model_comparison <- compare_performance(
+  spp_m,
+  k2m, k3m, k4m, k5m, k6m, k7m, k8m, k9m, k10m, k11m, k12m, k13m, k14m,
+  k2ms, k3ms, k4ms, km5s, k6ms, k7ms, k8ms, k9ms, k10ms, k11ms, k12ms, k13ms, k14ms,
+  metrics = c("AIC", "BIC", "R2_marginal", "R2_conditional")
+)
+
+# 3. View your sorted results
+print(model_comparison%>% arrange(AIC))
+
+#asked pal to help with r2 wasnt showing up
+library(performance)
+library(dplyr)
+library(purrr)
+
+# 1. Create a named list of all your model objects
+all_models <- list(
+  "spp_m" = spp_m,
+  "k2m"   = k2m,   "k2ms"  = k2ms,
+  "k3m"   = k3m,   "k3ms"  = k3ms,
+  "k4m"   = k4m,   "k4ms"  = k4ms,
+  "k5m"   = k5m,   "k5ms"  = km5s, 
+  "k6m"   = k6m,   "k6ms"  = k6ms,
+  "k7m"   = k7m,   "k7ms"  = k7ms,
+  "k8m"   = k8m,   "k8ms"  = k8ms,
+  "k9m"   = k9m,   "k9ms"  = k9ms,
+  "k10m"  = k10m,  "k10ms" = k10ms,
+  "k11m"  = k11m,  "k11ms" = k11ms,
+  "k12m"  = k12m,  "k12ms" = k12ms,
+  "k13m"  = k13m,  "k13ms" = k13ms,
+  "k14m"  = k14m,  "k14ms" = k14ms
+)
+
+# 2. Extract AIC, BIC, and both R2 values together
+master_model_table <- imap_dfr(all_models, function(model_obj, model_name) {
+  
+  # Grab information criteria
+  perf <- model_performance(model_obj)
+  
+  # Grab variance partition metrics
+  r2_vals <- r2(model_obj)
+  
+  data.frame(
+    Model_Name      = model_name,
+    AIC             = round(perf$AIC, 1),
+    BIC             = round(perf$BIC, 1),
+    Marginal_R2     = round(r2_vals$R2_marginal, 3),
+    Conditional_R2  = round(r2_vals$R2_conditional, 3),
+    stringsAsFactors = FALSE
+  )
+})
+
+# 3. View the table sorted by AIC to look at the trade-offs cleanly
+print(master_model_table %>% arrange(AIC))
+
+
+write.csv(master_model_table, here("Data", "master_model_table.csv"))
+
+top_models <- list(
+  "K3_plus_Spp"  = k3ms,
+  #"K4_plus_Spp"  = k4ms,
+  "Just_Spp" = spp_m
+)
+
+anova_table <- lapply(names(top_models), function(model_name) {
+  m <- top_models[[model_name]]
+  an <- anova(m)
+  
+  as.data.frame(an) %>%
+    rownames_to_column("term") %>%
+    mutate(Model = model_name)
+}) %>%
+  bind_rows() %>%
+  select(Model, term, everything()) # Keeps it scannable
+
+print(anova_table)
+
+var_table <- imap_dfr(top_models, function(m, model_name) {
+  vc <- as.data.frame(VarCorr(m))
+  
+  # Extract site variance safely
+  site_var <- vc$vcov[vc$grp == "site"] 
+  if(length(site_var) == 0) site_var <- 0 # Fallback safety if variance is exactly 0
+  
+  # Extract residual variance
+  resid_var <- attr(VarCorr(m), "sc")^2
+  total <- site_var + resid_var
+  
+  tibble(
+    Model             = model_name,
+    Site_variance     = site_var,
+    Residual_variance = resid_var,
+    Site_prop         = site_var / total,
+    Residual_prop     = resid_var / total
+  )
+})
+
+print(var_table)
+
+emmeans_table <- imap_dfr(top_3_models, function(m, model_name) {
+  # Calculate post-hoc differences between your species lines
+  em <- emmeans(m, ~ species)
+  
+  tidy(pairs(em)) %>%
+    mutate(Model = model_name)
+})
+
+print(emmeans_table)
+
+# just best
+par(mfrow = c(1, 2))
+plot(resid(k3ms) ~ fitted(k3ms), main = "Residuals vs Fitted (K3ms)", xlab = "Fitted", ylab = "Residuals")
+qqnorm(resid(k3ms), main = "Normal Q-Q Plot (K3ms)")
+qqline(resid(k3ms), col = "red")
+par(mfrow = c(1, 1)) 
+```
+
+```{r}
+##LOSE a lot of explanatory power when removing site to del with singularity
+
+spp_m <- lm(ED50 ~ species , data = df_modeling)
+
+#does K explain ED50 variation
+k2m <- lm(ED50 ~ K_2,  data = df_modeling, REML = FALSE)
+k3m <- lm(ED50 ~ K_3, data = df_modeling, REML = FALSE)
+k4m <- lm(ED50 ~ K_4, data = df_modeling, REML = FALSE)
+k5m <- lm(ED50 ~ K_5, data = df_modeling, REML = FALSE)
+k6m <- lm(ED50 ~ K_6, data = df_modeling, REML = FALSE)
+k7m <- lm(ED50 ~ K_7, data = df_modeling, REML = FALSE)
+k8m <- lm(ED50 ~ K_8, data = df_modeling, REML = FALSE)
+k9m <- lm(ED50 ~ K_9, data = df_modeling, REML = FALSE)
+k10m <- lm(ED50 ~ K_10 , data = df_modeling, REML = FALSE)
+k11m <- lm(ED50 ~ K_11, data = df_modeling, REML = FALSE)
+k12m <- lm(ED50 ~ K_12, data = df_modeling, REML = FALSE)
+k13m <- lm(ED50 ~ K_13, data = df_modeling, REML = FALSE)
+k14m <- lm(ED50 ~ K_14, data = df_modeling, REML = FALSE)
+
+#does adding species make model better (even though some confounded spp, site, and group)
+k2ms <- lm(ED50 ~ species + K_2, data = df_modeling, REML = FALSE)
+k3ms <- lm(ED50 ~ species + K_3, data = df_modeling, REML = FALSE)
+k4ms <- lm(ED50 ~ species + K_4, data = df_modeling, REML = FALSE)
+km5s <- lm(ED50 ~ species + K_5, data = df_modeling, REML = FALSE)
+k6ms <- lm(ED50 ~ species + K_6 , data = df_modeling, REML = FALSE)
+k7ms <- lm(ED50 ~ species + K_7 , data = df_modeling, REML = FALSE)
+k8ms <- lm(ED50 ~ species + K_8 , data = df_modeling, REML = FALSE)
+k9ms <- lm(ED50 ~ species + K_9 , data = df_modeling, REML = FALSE)
+k10ms <- lm(ED50 ~ species + K_10 , data = df_modeling, REML = FALSE)
+k11ms <- lm(ED50 ~ species + K_11 , data = df_modeling, REML = FALSE)
+k12ms <- lm(ED50 ~ species + K_12 , data = df_modeling, REML = FALSE)
+k13ms <- lm(ED50 ~ species + K_13 , data = df_modeling, REML = FALSE)
+k14ms <- lm(ED50 ~ species + K_14 , data = df_modeling, REML = FALSE)
+
+model_comparison <- compare_performance(
+  spp_m,
+  k2m, k3m, k4m, k5m, k6m, k7m, k8m, k9m, k10m, k11m, k12m, k13m, k14m,
+  k2ms, k3ms, k4ms, km5s, k6ms, k7ms, k8ms, k9ms, k10ms, k11ms, k12ms, k13ms, k14ms,
+  metrics = c("AIC", "BIC", "R2_marginal", "R2_conditional")
+)
+```
+
+
+```{r}
+# Loop through and compute AIC using lmer()
+library(dplyr)
+library(purrr)
+library(lme4)
+library(performance)
+
+model_comp <- map_df(k_cols, function(k_name) {
+  
+  # Fit the model (REML = FALSE is mandatory for comparing fixed structures via AIC)
+  form <- as.formula(paste("ED50 ~ species +", k_name, "+ (1 | site)"))
+  model <- lmer(form, data = df_modeling, REML = FALSE)
+  
+  # Grab AIC and BIC
+  perf <- model_performance(model)
+  
+  data.frame(
+    Model          = k_name,
+    AIC            = perf$AIC,
+    BIC            = perf$BIC,           # Punishes overfitting harder than AIC
+    R2_Marginal    = perf$R2_marginal,    # Variance explained by Species + K-Cluster
+    R2_Conditional = perf$R2_conditional  # Total variance explained including Site
+  )
+})
+
+# Arrange by best AIC to see the trade-offs
+print(model_comp %>% arrange(AIC))
+
+# 1. Fit the final, optimal model structure
+final_model <- lmer(ED50 ~ species + K_3 + (1 | site), 
+                    data = df_modeling, 
+                    REML = TRUE)
+
+# 2. Look at the coefficients to see WHICH clusters are more tolerant
+summary(final_model)
+
+# 3. Check exactly how much heat tolerance separates the groups (in degrees C)
+tidy(k2ms, effects = "fixed")
+
+table(df_modeling$species, df_modeling$K_3)
+
+#
+
+
+spp<- lmer(ED50 ~ species + (1|site), data = df_modeling)
+anova(spp)
+summary(spp)
+
+clust<-lmer(ED50 ~ K_3 + (1|site), data = df_modeling)
+anova(clust)
+summary(clust)
+
+
+
+```
+```{r}
+ggplot(df_modeling,
+       aes(K_3, ED50)) +
+  geom_boxplot(outlier.shape = NA,
+               width = 0.55) +
+  geom_jitter(width = 0.15,
+              alpha = 0.6,
+              size = 2) +
+  labs(x = "Photophysiological Cluster",
+       y = expression(ED[50]~degree*C)) +
+  theme_classic(base_size = 14)
+```
+
+
+```{r}
+emm2 <- as.data.frame(emmeans(m1, ~K_3))
+
+ggplot(emm2,
+       aes(K_3, emmean)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(ymin = lower.CL,
+                    ymax = upper.CL),
+                width = 0.15,
+                linewidth = 0.8) +
+  labs(x = "Photophysiological Cluster",
+       y = expression(Adjusted~ED[50]~degree*C)) +
+  theme_classic(base_size = 14)
+```
+```{r}
+df_modeling$pred <- predict(m1)
+
+ggplot(df_modeling,
+       aes(pred, ED50)) +
+  geom_point(aes(color = K_3),
+             size = 2,
+             alpha = 0.7) +
+  geom_abline(intercept = 0,
+              slope = 1,
+              linetype = 2) +
+  labs(x = "Predicted ED50",
+       y = "Observed ED50") +
+  theme_classic(base_size = 14)
+```
+
+```{r}
+emm2 <- as.data.frame(emmeans(m1, ~K_3))
+
+ggplot() +
+  geom_jitter(data = df_modeling,
+              aes(K_3, ED50,
+                  color = species),
+              width = 0.12,
+              alpha = 0.45,
+              size = 2) +
+  geom_point(data = emm2,
+             aes(K_3, emmean),
+             size = 5,
+             shape = 18,
+             color = "black") +
+  geom_errorbar(data = emm2,
+                aes(K_3,
+                    ymin = lower.CL,
+                    ymax = upper.CL),
+                width = 0.12,
+                linewidth = 1) +
+  labs(x = "Photophysiological Cluster",
+       y = expression(ED[50]~degree*C)) +
+  theme_classic(base_size = 14)
+```
+
+
+```{r}
+#plot ED50 by cluster assignment, here K=3
 #ordering by host 
 #custom_order <- c("1", "2", "3", "4", "10", "11", "5", "6", "7", "8", "9", "12")
-custom_order <- c("1", "2", "3", "4",  "9", "7","10", "11", "5", "6",  "8") #make plot then change these if needed
+custom_order <- c("1", "3", "2") #make plot then change these if needed
 
 # --- 2. Clean Data & Reorder Factor Levels ---
 df_sorted <- df_modeling %>%
   mutate(
-    # enter the K here (i.e. K_11) to follow your specific sequence on the x-axis
-    K_sorted = factor(as.character(K_11), levels = custom_order),
+    #enter the K here (i.e. K_) to follow your specific sequence on the x-axis
+    K_sorted = factor(as.character(K_3), levels = custom_order),
     species_color = toupper(trimws(species))
   ) %>%
   # Drop any rows that don't match your custom level list (if any exist)
@@ -58,33 +381,57 @@ ggplot(df_sorted, aes(x = K_sorted, y = ED50)) +
 
 
 ```{r}
-# Loop through and compute AIC using lmer()
-aic_mixed_all <- map_df(k_cols, function(k_name) {
+#plot predictions
+
+# 1. Extract predictions (fitted values) from your final model
+df_modeling$Predicted_ED50 <- predict(final_model)
+
+# 2. Plot Raw vs. Predicted
+plot_pred_vs_raw <- ggplot(df_modeling, aes(x = Predicted_ED50, y = ED50)) +
+  # Add a 1:1 line. If predictions were perfect, dots would sit exactly on this line
+  geom_abline(intercept = 0, slope = 1, color = "darkred", linetype = "dashed", linewidth = 0.8) +
   
-  # Fit Mixed Model: ED50 ~ Cluster fixed effect + Site/Run random effect
-  # REML = FALSE is CRITICAL here because we are comparing models with different fixed effects
-  model <- lmer(as.formula(paste("ED50 ~", k_name, "+ (1 | site)")), 
-                data = df_modeling, 
-                REML = FALSE)
+  # Scatter dots colored by Species and shaped by Cluster Group
+  geom_point(aes(color = toupper(species), shape = as.factor(K_3)), size = 3, alpha = 0.8) +
   
-  data.frame(
-    Model = k_name,
-    AIC = AIC(model)
+  # Add a trend line of your actual fit to see deviation from the 1:1 line
+  geom_smooth(method = "lm", color = "darkblue", se = FALSE, linewidth = 0.7) +
+  
+  theme_bw(base_size = 13) +
+  theme(
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  ) +
+  labs(
+    title = "Model Validation: Predicted vs. Observed Heat Tolerance",
+    subtitle = "Dashed Line = Perfect 1:1 Prediction | Solid Line = Actual Model Fit",
+    x = expression("Predicted " * ED[50] * " (°C)"),
+    y = expression("Observed Raw " * ED[50] * " (°C)"),
+    color = "Species",
+    shape = "K_3 Cluster"
   )
-})
 
-# Arrange from lowest AIC (best) to highest
-aic_mixed_all <- aic_mixed_all %>% arrange(AIC)
-print("--- Full Dataset Mixed Model Comparisons ---")
-print(aic_mixed_all) #K11, K12, K13, K14, K4
+# Display the plot
+print(plot_pred_vs_raw)
 
-k11_m <- lmer(ED50 ~ K_11 + species + (1 | site), data = df_modeling, REML = FALSE)
-k12_m <- lmer(ED50 ~ K_12 + species + (1 | site), data = df_modeling, REML = FALSE)
-k4_m  <- lmer(ED50 ~ K_4 + species + (1 | site),  data = df_modeling, REML = FALSE)
+# Save to your plots directory
+ggsave(here("Plots", "ED50_Predicted_vs_Raw.png"), plot = plot_pred_vs_raw, width = 8, height = 6, dpi = 300)
+```
+
+
+```{r}
+r2_vals <- model_performance(model)
+
+test_residuals <- simulateResiduals(fittedModel = model)
+plot(test_residuals)
+
+k3_m <- lmer(ED50 ~ K_3 + species + (1 | site), data = df_modeling, REML = FALSE)
+k10_m <- lmer(ED50 ~ K_10 + species + (1 | site), data = df_modeling, REML = FALSE)
+k8_m  <- lmer(ED50 ~ K_8 + species + (1 | site),  data = df_modeling, REML = FALSE)
 
 # 2. Run the comparative ANOVA (Likelihood Ratio Test)
-anova(k11_m, k12_m, k4_m)
-#Moving from 4 categories to 11 categories sig improves the model fit ($\chi^2 = 18.22, Df = 7, p = 0.0110$).  AIC drops from 99.23 to 95.00.Adding a 12th category does not significantly improve the model ($\chi^2 = 0.16, Df = 1, p = 0.6858$). The AIC actually goes up (from 95.00 to 96.84), meaning the extra complexity isn't justified.
+anova(k3_m, k10_m, k8_m)
+#10 is lowest aic when 
 summary(k11_m)
 summary(k12_m)
 summary(k4_m)

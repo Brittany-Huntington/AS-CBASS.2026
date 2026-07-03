@@ -57,7 +57,7 @@ annotation_col <- annot_master %>%
   filter(SampleID_clean %in% dend_order_labels) %>%
   slice(match(dend_order_labels, SampleID_clean)) %>%
   # Select metadata, your cluster level, AND the continuous ED50 column
-  dplyr::select(SampleID_clean, species, K_10:K_15, ED50)
+  dplyr::select(SampleID_clean, species, K_3:K_11, ED50)
 
 
 # Establish row names for pheatmap and strip the raw ID column
@@ -67,7 +67,7 @@ annotation_col$SampleID_clean <- NULL
 
 # Convert categorical features to factors, keeping ED50 numeric
 annotation_col <- annotation_col %>% 
-  mutate(across(c(species, K_10:K_15), as.factor))
+  mutate(across(c(species, K_3:K_11), as.factor))
 
 write.csv(annotation_col, file = here( "Data", "annotation_col.csv"))
 
@@ -311,7 +311,7 @@ annotation_col <- cluster_summary %>%
   mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
   filter(SampleID_clean %in% dend_order_labels) %>%
   slice(match(dend_order_labels, SampleID_clean)) %>%
-  dplyr::select(species, K_2:K_15) %>% # Toggle your K's here
+  dplyr::select(species, K_10) %>% # Toggle your K's here
   mutate(across(everything(), as.factor)) %>%
   as.data.frame()
 
@@ -356,21 +356,21 @@ pheatmap(
 ```{r}
 #plot ED50 by cluster assignment, here K=12
 #1. set order for easy interpretation 
-custom_order <- c("1", "2", "3", "4", "10", "11", "5", "6", "7", "8", "9", "12")
+custom_order <- c("1", "2", "3", "7", "8", "9", "10", "4", "11", "5", "6")
 
 # --- 2. Clean Data & Reorder Factor Levels ---
 df_sorted <- df_modeling %>%
   filter(ED50 < 45) %>% 
   mutate(
     # Force K_12 to follow your specific sequence on the x-axis
-    K_12_sorted = factor(as.character(K_12), levels = custom_order),
+    K_11_sorted = factor(as.character(K_11), levels = custom_order),
     species_color = toupper(trimws(species))
   ) %>%
   # Drop any rows that don't match your custom level list (if any exist)
-  filter(!is.na(K_12_sorted))
+  filter(!is.na(K_11_sorted))
 
 # --- 3. Build the Single Unfaceted Plot ---
-plot_sorted_k12 <- ggplot(df_sorted, aes(x = K_12_sorted, y = ED50)) +
+plot_sorted_k11 <- ggplot(df_sorted, aes(x = K_11_sorted, y = ED50)) +
   # One clean boxplot per cluster step along your custom x-axis order
   geom_boxplot(alpha = 0.3, outlier.shape = NA, color = "black", fill = "grey98") +
   
@@ -385,7 +385,7 @@ plot_sorted_k12 <- ggplot(df_sorted, aes(x = K_12_sorted, y = ED50)) +
   ) +
   labs(
    # title = "ED50 Phenotypes Ordered by Custom Cluster Sequence",
-    x = "K_12 Cluster Assignment",
+    x = "K_11 Cluster Assignment",
     y = expression(ED[50]*" Score"),
     color = "Species"
   )
