@@ -23,50 +23,51 @@ write.csv(annot_master, here("Data", "cluster_and_ed50_data.csv"))
 
 # Grab the hclust object directly from your pvclust output
 my_hclust <- cbb$hclust
-
-# Clean the labels directly on the hclust object so it stays the correct data type
-my_hclust$labels <- my_hclust$labels %>%
-  tolower() %>%
-  sub("\\.processed\\.csv$", "", .) %>%
-  sub("\\._?\\d{2,3}r$", "", .) %>%
-  trimws()
-
-# Keep track of this order for matching data frames
-dend_order_labels <- my_hclust$labels
+# --- 1. RESET: Keep the hclust object completely untouched ---
+# Do NOT clean my_hclust$labels. Leave them messy so pheatmap can map them natively.
+my_hclust <- cbb$hclust
+original_labels <- my_hclust$labels
 
 
-# --- 2. Align the physiological matrix data ---
-# Match the rows of your clean numeric matrix to the exact order of the hclust labels
-heatmap_matrix <- Alls.cor_clean[match(cbb$hclust$labels, rownames(Alls.cor_clean)), ] %>%
+# --- 2. Align the physiological matrix data natively ---
+# Match the rows of your matrix to the original messy tree labels
+heatmap_matrix <- Alls.cor_clean[match(original_labels, rownames(Alls.cor_clean)), ] %>%
   as.matrix()
 
-# Transpose and scale (z-score) so traits are rows
+# Transpose, scale, and cap outliers
 heatmap_matrix_scaled <- t(scale(heatmap_matrix))
-# Add this line right after you create heatmap_matrix_scaled!
 heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
 heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
 
-# Assign the cleaned labels as the column names of the matrix
-colnames(heatmap_matrix_scaled) <- dend_order_labels
+# CRITICAL: Keep the column names messy to match the tree!
+colnames(heatmap_matrix_scaled) <- original_labels
 
 
-# --- 3. Align the cluster metadata annotations ---
+# --- 3. Update the Metadata to Match the Messy Labels ---
+# We will create a temporary column in annot_master that mimics the messy file names
+annot_messy <- annot_master %>%
+  distinct(SampleID_clean, .keep_all = TRUE)
 
+# Create a lookup dataframe matching messy names to clean names
+lookup_df <- data.frame(
+  MessyID = original_labels,
+  SampleID_clean = original_labels %>%
+    tolower() %>%
+    sub("\\.processed\\.csv$", "", .) %>%
+    sub("\\._?\\d{2,3}r$", "", .) %>%
+    trimws()
+)
 
-annotation_col <- annot_master %>%
-  filter(SampleID_clean %in% dend_order_labels) %>%
-  slice(match(dend_order_labels, SampleID_clean)) %>%
-  # Select metadata, your cluster level, AND the continuous ED50 column
-  dplyr::select(SampleID_clean, species, K_3:K_11, ED50)
+# Join the lookup back to your metadata
+annotation_col <- lookup_df %>%
+  left_join(annot_messy, by = "SampleID_clean")
 
+# Establish the messy names as the row names so pheatmap can map them
+rownames(annotation_col) <- annotation_col$MessyID
 
-# Establish row names for pheatmap and strip the raw ID column
-annotation_col <- as.data.frame(annotation_col)
-rownames(annotation_col) <- annotation_col$SampleID_clean
-annotation_col$SampleID_clean <- NULL
-
-# Convert categorical features to factors, keeping ED50 numeric
+# Select your tracks and convert to factors
 annotation_col <- annotation_col %>% 
+  dplyr::select(species, K_3:K_11, ED50) %>%
   mutate(across(c(species, K_3:K_11), as.factor))
 
 write.csv(annotation_col, file = here( "Data", "annotation_col.csv"))

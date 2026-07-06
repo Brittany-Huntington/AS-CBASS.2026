@@ -157,8 +157,58 @@ save(Alls.cor_clean, file = here("Data", "Alls.cor_clean.RData"))
 
 
 ```{r dendro}
-cbb<-pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=1000)
-save(cbb, file = here("Data", "cbb_AS26_expt_1000bs_updated.RData"))
+# cbb<-pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=1000)
+# save(cbb, file = here("Data", "cbb_AS26_expt_1000bs_updated.RData"))
+#or if you dont need to rerun
+load(file = here("Data", "cbb_AS26_expt_1000bs_updated.RData")) #loads cbb
+```
+
+
+```{r dendro}
+
+# 1. Cut the hclust tree for K = 2 through 10
+cluster_levels <- lapply(3:15, function(k) {
+  groups <- cutree(cbb$hclust, k = k)
+  data.frame(
+    SampleID = names(groups),
+    Cluster = as.integer(groups),
+    k_val = k
+  )
+})
+
+# 2. Pivot the cluster assignments wide so they match your desired columns
+cluster_matrix_wide <- bind_rows(cluster_levels) %>%
+  pivot_wider(
+    names_from = k_val,
+    values_from = Cluster,
+    names_prefix = "K_"
+  )
+
+# 3. Clean the SampleID names and dynamically parse site, species, and genotype
+cluster_summary <- cluster_matrix_wide %>%
+  mutate(
+    SampleID_clean = SampleID %>%
+      tolower() %>%
+      str_replace("\\.processed\\.csv$", "") %>%
+      str_replace("\\._?\\d{2,3}r$", "") %>%
+      trimws(),
+    
+    # Extract 'site' (the number right after the 't')
+    site = str_extract(SampleID_clean, "^t\\d+") %>% str_remove("t"),
+    
+    # Extract 'species' (alphabetic text following the underscore)
+    species = str_extract(SampleID_clean, "(?<=_)[:alpha:]+"),
+    
+    # Extract 'genotype' (the trailing number at the very end)
+    genotype = str_extract(SampleID_clean, "\\d+$")
+  ) %>%
+  # Ensure rows are unique per clean ID
+  distinct(SampleID_clean, .keep_all = TRUE) %>%
+  # Reorder columns to look exactly like your target format
+  dplyr::select(SampleID_clean, site, species, genotype, K_3:K_15)
+
+# 4. Save it cleanly to your Data folder
+write.csv(cluster_summary, file = here("Data", "expt_data_clustered.csv"), row.names = FALSE)
 ```
 
 

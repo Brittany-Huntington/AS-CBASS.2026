@@ -8,6 +8,7 @@ library(emmeans)
 library(lme4)
 library(lmerTest)
 library(broom.mixed)
+library(tidyverse)
 
 annot_master<-read.csv(here("Data", "cluster_and_ed50_data.csv")) #from phenotype_heatmap script
 df_modeling <- annot_master %>%
@@ -110,7 +111,7 @@ write.csv(master_model_table, here("Data", "master_model_table.csv"))
 
 top_models <- list(
   "K3_plus_Spp"  = k3ms,
-  #"K4_plus_Spp"  = k4ms,
+  "K4_plus_Spp"  = k4ms,
   "Just_Spp" = spp_m
 )
 
