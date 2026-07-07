@@ -150,7 +150,7 @@ var_table <- imap_dfr(top_models, function(m, model_name) {
 
 print(var_table)
 
-emmeans_table <- imap_dfr(top_3_models, function(m, model_name) {
+emmeans_table <- imap_dfr(top_models, function(m, model_name) {
   # Calculate post-hoc differences between your species lines
   em <- emmeans(m, ~ species)
   

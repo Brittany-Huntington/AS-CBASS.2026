@@ -167,7 +167,7 @@ load(file = here("Data", "cbb_AS26_expt_1000bs_updated.RData")) #loads cbb
 ```{r dendro}
 
 # 1. Cut the hclust tree for K = 2 through 10
-cluster_levels <- lapply(3:15, function(k) {
+cluster_levels <- lapply(2:15, function(k) {
   groups <- cutree(cbb$hclust, k = k)
   data.frame(
     SampleID = names(groups),
@@ -205,7 +205,7 @@ cluster_summary <- cluster_matrix_wide %>%
   # Ensure rows are unique per clean ID
   distinct(SampleID_clean, .keep_all = TRUE) %>%
   # Reorder columns to look exactly like your target format
-  dplyr::select(SampleID_clean, site, species, genotype, K_3:K_15)
+  dplyr::select(SampleID_clean, site, species, genotype, K_2:K_15)
 
 # 4. Save it cleanly to your Data folder
 write.csv(cluster_summary, file = here("Data", "expt_data_clustered.csv"), row.names = FALSE)
