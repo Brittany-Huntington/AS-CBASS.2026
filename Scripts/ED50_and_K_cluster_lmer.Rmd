@@ -9,6 +9,8 @@ library(lme4)
 library(lmerTest)
 library(broom.mixed)
 library(tidyverse)
+library(multcomp)
+library(multcompView)
 
 annot_master<-read.csv(here("Data", "cluster_and_ed50_data.csv")) #from phenotype_heatmap script
 df_modeling <- annot_master %>%
@@ -20,6 +22,12 @@ k_cols <- paste0("K_", 2:15)
 
 ```{r}
 spp_m <- lmer(ED50 ~ species + (1 | site), data = df_modeling, REML = TRUE)
+#m_ED50 <- lmer(ED_value ~ Species + (1|Site), data = ED50_df)
+summary(spp_m)
+anova(spp_m)
+species_emms <- emmeans(spp_m, ~ species)
+species_letters <- cld(species_emms, Letters = letters, adjust = "tukey")
+print(species_letters)
 
 #does K explain ED50 variation
 k2m <- lmer(ED50 ~ K_2 + (1 | site), data = df_modeling, REML = TRUE)
@@ -50,6 +58,10 @@ k11ms <- lmer(ED50 ~ species + K_11 + (1 | site), data = df_modeling, REML = TRU
 k12ms <- lmer(ED50 ~ species + K_12 + (1 | site), data = df_modeling, REML = TRUE)
 k13ms <- lmer(ED50 ~ species + K_13 + (1 | site), data = df_modeling, REML = TRUE)
 k14ms <- lmer(ED50 ~ species + K_14 + (1 | site), data = df_modeling, REML = TRUE)
+
+#interaction
+k3ms <- lmer(ED50 ~ species * K_3 + (1 | site), data = df_modeling, REML = TRUE)
+k4ms <- lmer(ED50 ~ species * K_4 + (1 | site), data = df_modeling, REML = TRUE)
 
 model_comparison <- compare_performance(
   spp_m,
@@ -159,14 +171,604 @@ emmeans_table <- imap_dfr(top_models, function(m, model_name) {
 })
 
 print(emmeans_table)
+```
 
+
+```{r}
 # just best
 par(mfrow = c(1, 2))
 plot(resid(k3ms) ~ fitted(k3ms), main = "Residuals vs Fitted (K3ms)", xlab = "Fitted", ylab = "Residuals")
 qqnorm(resid(k3ms), main = "Normal Q-Q Plot (K3ms)")
 qqline(resid(k3ms), col = "red")
 par(mfrow = c(1, 1)) 
+
+anova(k3ms)
+#this is  mathematically removing the effect of their physiological cluster- does genetic lineage matter independent of current physiological state.
+k3ms_raw_emm <- emmeans(k3ms, ~ species | K_3)
+
+# 2. Convert to a clean dataframe, dropping rows that have no data (the NAs)
+cld_spp <- cld(k3ms_raw_emm, adjust = "tukey", Letters = letters) %>%
+  filter(!is.na(emmean)) %>%
+  mutate(.group = trimws(as.character(.group)))
+
+# Print this out to verify the column names before plotting!
+print(cld_spp) 
+
+cld_spp_plot <- cld_spp %>%
+  mutate(
+    K_3 = factor(paste("Cluster", K_3)),
+    species = toupper(species) # Standardize naming case if needed
+  )
+
+df_raw_clean <- df_modeling %>%
+  mutate(
+    species = toupper(species),
+    K_3 = factor(paste("Cluster", K_3))
+  )
+
+# 2. Clean the EMMeans CLD data frame identically
+cld_spp_plot <- cld_spp %>%
+  mutate(
+    species = toupper(species),
+    K_3 = factor(paste("Cluster", K_3)),
+    .group = trimws(as.character(.group))
+  )
+
+# 3. Dynamic layout math for text placement
+y_range <- max(cld_spp_plot$upper.CL, na.rm = TRUE) - min(cld_spp_plot$lower.CL, na.rm = TRUE)
+text_offset <- y_range * 0.06
+
+# 4. Generate the combined plot
+plot_jittered <- ggplot() +
+  # STEP A: Plot the raw data points in the background (jittered horizontally)
+  geom_jitter(
+    data = df_raw_clean, 
+    aes(x = species, y = ED50, color = species),
+    alpha = 0.35,       # Makes raw data slightly transparent
+    width = 0.2,        # Spread of the jittering
+    height = 0          # Do not jitter vertically (keeps true ED50 values)
+  ) +
+  # STEP B: Layer the EMMeans model results explicitly on top using a separate dataset
+  geom_errorbar(
+    data = cld_spp_plot,
+    aes(x = species, ymin = lower.CL, ymax = upper.CL),
+    color = "black", width = 0.15, linewidth = 1.1
+  ) +
+  geom_point(
+    data = cld_spp_plot,
+    aes(x = species, y = emmean, fill = species),
+    color = "black", shape = 21, size = 4.5, stroke = 1.5
+  ) +
+  # STEP C: Add the post-hoc significance letter labels
+  geom_text(
+    data = cld_spp_plot,
+    aes(x = species, y = upper.CL + text_offset, label = .group), 
+    color = "black", fontface = "bold", size = 5
+  ) +
+  # Split into identical grid panels by cluster
+  facet_wrap(~ K_3) + 
+  scale_color_brewer(palette = "Set1") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_bw(base_size = 14) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(face = "bold", angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold", size = 12),
+    strip.background = element_rect(fill = "gray95"),
+    panel.grid.major.x = element_blank() # Cleans up vertical grid lines
+  ) +
+  labs(
+    x = "Species Identity",
+    y = expression(ED[50]~"("*degree*C*")")
+  )
+
+print(plot_jittered)
+#this is  mathematically removing the effect of host - does cluster matter independent of host.
+k3ms_cluster_emm <- emmeans(k3ms, specs = ~ K_3) 
+k3ms_clust <- pairs(k3ms_cluster_emm, adjust = "tukey")
+print(k3ms_clust) #yes, 3 is different from each
+cld_clusters <- cld(k3ms_clust, adjust = "tukey", Letters = letters)
+print(cld_clusters)
+
+# 1. Correct the CLD call to use the EMM object
+cld_clusters <- cld(k3ms_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  mutate(.group = trimws(.group))
+
+# 2. Generate Plot
+plot_cluster_emm <- ggplot(cld_clusters, aes(x = as.factor(K_3), y = emmean)) +
+  geom_point(size = 4, color = "grey20") +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.15, linewidth = 1, color = "grey20") +
+  geom_text(aes(label = .group, y = upper.CL + 0.08), fontface = "bold", size = 5) +
+  
+  theme_classic(base_size = 14) +
+  theme(axis.text.x = element_text(face = "bold")) +
+  labs(
+    title = "Physiological Cluster Thermal Performance",
+    subtitle = "Controlled for Species Identity (Cluster 3 boosts tolerance)",
+    x = "Photophysiological Cluster (K=3)",
+    y = expression(Estimated~Marginal~Mean~ED[50]~"("*degree*C*")")
+  )
+
+print(plot_cluster_emm)
+
+# This groups the data by cluster first, then compares species inside them
+k3ms_joint_emm <- emmeans(k3ms, specs = ~ species | K_3)
+joint_pairs <- pairs(k3ms_joint_emm, adjust = "tukey")
+print(joint_pairs)
+cld_joint <- cld(k3ms_joint_emm, adjust = "tukey", Letters = letters)
+print(cld_joint)
+
+# 1. Generate the combined species-within-cluster CLD table
+cld_joint_df <- cld(k3ms_joint_emm, adjust = "tukey", Letters = letters) %>%
+  mutate(.group = trimws(.group))
+
+# 2. Generate Plot
+plot_joint_emm <- ggplot(cld_joint_df, aes(x = species, y = emmean, color = species)) +
+  geom_point(size = 3.5) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2, linewidth = 0.8) +
+  geom_text(aes(label = .group, y = upper.CL + 0.08), color = "black", fontface = "bold", size = 4) +
+  
+  # Faceting by Cluster showcases the additive shift clearly
+  facet_wrap(~ paste("Cluster", K_3), nrow = 1) +
+  
+  scale_color_brewer(palette = "Set1") +
+  theme_bw(base_size = 14) +
+  theme(
+    legend.position = "none",
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "grey93", color = "black"),
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(face = "bold", angle = 45, hjust = 1)
+  ) +
+  labs(
+    title = "Additive Model Fit Across Subgroups",
+    subtitle = "Letters compare species WITHIN each specific cluster panel",
+    x = "Species Identity",
+    y = expression(Estimated~Marginal~Mean~ED[50]~"("*degree*C*")")
+  )
+
+print(plot_joint_emm)
 ```
+```{r}
+library(dplyr)
+library(stringr)
+
+# now want to test 
+# --- 1. Fit the safe model ---
+k3ms_joint <- lmer(ED50 ~ Spp_Cluster + (1 | site), 
+                   data = df_modeling, 
+                   REML = TRUE)
+
+# --- 2. Calculate means and extract pairs ---
+joint_emm <- emmeans(k3ms_joint, specs = ~ Spp_Cluster)
+all_pairs <- as.data.frame(pairs(joint_emm, adjust = "tukey"))
+
+# --- 4. Look at shifts within species ---
+# This filters the giant list to ONLY show comparisons within the same species
+within_species_shifts <- all_pairs %>%
+  filter(
+    (str_detect(contrast, "aabr") & !str_detect(contrast, "aglo|ahya|icra")) |
+    (str_detect(contrast, "aglo") & !str_detect(contrast, "aabr|ahya|icra")) |
+    (str_detect(contrast, "icra") & !str_detect(contrast, "aabr|ahya|aglo"))
+  )
+
+print(within_species_shifts)
+```
+ 
+```{r}
+df_modeling$Cluster <- sub(".*_", "", df_modeling$Spp_Cluster)
+df_modeling$Cluster <- factor(df_modeling$Cluster)
+
+m <- lmer(
+  ED50 ~ species + Cluster + (1 | site),
+  data = df_modeling
+)
+
+summary(m)
+```
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# --- 1. Filter out missing values and clean up factor levels for K=3 ---
+df_plot_k3 <- df_modeling %>%
+  filter(!is.na(K_3), !is.na(site), !is.na(ED50)) %>%
+  mutate(
+    species_label = toupper(trimws(species)),
+    site_factor   = as.factor(site)
+  )
+
+# --- 2. Define 8 explicit, high-contrast shapes to prevent the 6-shape cutoff ---
+# 15=Square, 16=Circle, 17=Triangle, 18=Diamond, 
+# 21=Bordered Circle, 22=Bordered Square, 23=Bordered Diamond, 24=Bordered Triangle
+custom_shapes <- c(15, 16, 17, 18, 21, 22, 23, 24)
+
+# --- 3. Build the Faceted Plot ---
+plot_k3_shifts <- ggplot(df_plot_k3, aes(x = as.factor(K_3), y = ED50, fill = site_factor)) +
+  
+  # Clean, minimalist boxplots showing the median and IQR distributions
+  geom_boxplot(alpha = 0.4, outlier.shape = NA, color = "grey30", fill = "grey98") +
+  
+  # Overlay individual data points, manually assigning our 8 shape codes
+  geom_jitter(aes(shape = site_factor, color = site_factor), 
+              width = 0.15, alpha = 0.8, size = 2.5) +
+  
+  # Separate panels for each species with their own x-axes to match who actually lived where
+  facet_wrap(~ species_label, scales = "free_x", nrow = 1) +
+  
+  # Color and Shape overrides
+ # scale_color_brewer(palette = "Set1") +
+  scale_shape_manual(values = custom_shapes) +
+  
+  # Aesthetic cleanups
+  theme_bw(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",              # Stacks Species and Site legends beautifully
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "grey92", color = "black"),
+    strip.text = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(face = "bold", size = 12)
+  ) +
+  labs(
+    #title = "Heat Tolerance Shifts Across K=3 Physiological Clusters",
+   # subtitle = "Showing significant thermal threshold expansion in AABR and AGLO",
+    x = "Photophysiological Cluster Assignment (K=3)",
+    y = expression(ED[50]~"("*degree*C*")"),
+   # color = "Species Identity",
+    shape = "Collection Site"
+  )
+
+# Display the plot
+print(plot_k3_shifts)
+
+# Save the plot with a broad layout to accommodate the side-by-side species view
+ggsave(here("Plots", "ED50_Shifts_K3_Faceted.png"), 
+       plot = plot_k3_shifts, width = 11, height = 6, dpi = 300)
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+library(emmeans)
+
+# --- 1. Create the new fused factor for K = 4 ---
+df_modeling <- df_modeling %>%
+  mutate(Spp_Cluster_4 = factor(paste(species, K_4, sep = "_")))
+
+# Print this so you can see exactly which clusters aabr and aglo landed in!
+cat("Sample counts per Species-Cluster combo (K=4):\n")
+print(table(df_modeling$Spp_Cluster_4))
+
+# --- 2. Fit the model ---
+k4ms_joint <- lmer(ED50 ~ Spp_Cluster_4 + (1 | site), 
+                   data = df_modeling, 
+                   REML = TRUE)
+
+# --- 3. Extract the pairwise comparisons ---
+joint_emm_4 <- emmeans(k4ms_joint, specs = ~ Spp_Cluster_4)
+all_pairs_4 <- as.data.frame(pairs(joint_emm_4, adjust = "tukey"))
+
+# --- 4. Look at shifts within species ---
+# This filters the giant list to ONLY show comparisons within the same species
+within_species_shifts_4 <- all_pairs_4 %>%
+  filter(
+    (str_detect(contrast, "aabr") & !str_detect(contrast, "aglo|ahya|icra")) |
+    (str_detect(contrast, "aglo") & !str_detect(contrast, "aabr|ahya|icra")) |
+    (str_detect(contrast, "icra") & !str_detect(contrast, "aabr|ahya|aglo"))
+  )
+
+print(within_species_shifts_4)
+```
+```{r}
+
+#this is  mathematically removing the effect of their physiological cluster- does genetic lineage matter independent of current physiological state.
+k4ms_raw_emm <- emmeans(k4ms, ~ species | K_4)
+
+# 2. Convert to a clean dataframe, dropping rows that have no data (the NAs)
+cld_spp <- cld(k4ms_raw_emm, adjust = "tukey", Letters = letters) %>%
+  filter(!is.na(emmean)) %>%
+  mutate(.group = trimws(as.character(.group)))
+
+# Print this out to verify the column names before plotting!
+print(cld_spp) 
+
+cld_spp_plot <- cld_spp %>%
+  mutate(
+    K_4 = factor(paste("Cluster", K_4)),
+    species = toupper(species) # Standardize naming case if needed
+  )
+
+df_raw_clean <- df_modeling %>%
+  mutate(
+    species = toupper(species),
+    K_4 = factor(paste("Cluster", K_4))
+  )
+
+# 2. Clean the EMMeans CLD data frame identically
+cld_spp_plot <- cld_spp %>%
+  mutate(
+    species = toupper(species),
+    K_4 = factor(paste("Cluster", K_4)),
+    .group = trimws(as.character(.group))
+  )
+
+# 3. Dynamic layout math for text placement
+y_range <- max(cld_spp_plot$upper.CL, na.rm = TRUE) - min(cld_spp_plot$lower.CL, na.rm = TRUE)
+text_offset <- y_range * 0.06
+
+# 4. Generate the combined plot
+plot_jittered <- ggplot() +
+  # STEP A: Plot the raw data points in the background (jittered horizontally)
+  geom_jitter(
+    data = df_raw_clean, 
+    aes(x = species, y = ED50, color = species),
+    alpha = 0.35,       # Makes raw data slightly transparent
+    width = 0.2,        # Spread of the jittering
+    height = 0          # Do not jitter vertically (keeps true ED50 values)
+  ) +
+  # STEP B: Layer the EMMeans model results explicitly on top using a separate dataset
+  geom_errorbar(
+    data = cld_spp_plot,
+    aes(x = species, ymin = lower.CL, ymax = upper.CL),
+    color = "black", width = 0.15, linewidth = 1.1
+  ) +
+  geom_point(
+    data = cld_spp_plot,
+    aes(x = species, y = emmean, fill = species),
+    color = "black", shape = 21, size = 4.5, stroke = 1.5
+  ) +
+  # STEP C: Add the post-hoc significance letter labels
+  geom_text(
+    data = cld_spp_plot,
+    aes(x = species, y = upper.CL + text_offset, label = .group), 
+    color = "black", fontface = "bold", size = 5
+  ) +
+  # Split into identical grid panels by cluster
+  facet_wrap(~ K_4) + 
+  scale_color_brewer(palette = "Set1") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_bw(base_size = 14) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(face = "bold", angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold", size = 12),
+    strip.background = element_rect(fill = "gray95"),
+    panel.grid.major.x = element_blank() # Cleans up vertical grid lines
+  ) +
+  labs(
+    x = "Species Identity",
+    y = expression(ED[50]~"("*degree*C*")")
+  )
+
+print(plot_jittered)
+
+# --- 1. Filter out missing values and clean up factor levels for K=4 ---
+df_plot_k4 <- df_modeling %>%
+  filter(!is.na(K_4), !is.na(site), !is.na(ED50)) %>%
+  mutate(
+    species_label = toupper(trimws(species)),
+    site_factor   = as.factor(site)
+  )
+
+# --- 2. Define 8 explicit, high-contrast shapes to prevent the 6-shape cutoff ---
+custom_shapes <- c(15, 16, 17, 18, 21, 22, 23, 24)
+
+# --- 3. Build the Faceted Plot ---
+plot_k4_shifts <- ggplot(df_plot_k4, aes(x = as.factor(K_4), y = ED50, fill = site_factor)) +
+  
+  # Clean, minimalist boxplots showing the median and IQR distributions
+  geom_boxplot(alpha = 0.4, outlier.shape = NA, color = "grey30", fill = "grey98") +
+  
+  # Overlay individual data points, manually assigning our 8 shape codes
+  geom_jitter(aes(shape = site_factor, color = site_factor), 
+              width = 0.15, alpha = 0.8, size = 2.5) +
+  
+  # Separate panels for each species with their own x-axes to match who actually lived where
+  facet_wrap(~ species_label, scales = "free_x", nrow = 1) +
+  
+  # Color and Shape overrides
+  #scale_color_brewer(palette = "Set1") +
+  scale_shape_manual(values = custom_shapes) +
+  
+  # Aesthetic cleanups
+  theme_bw(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",              # Stacks Species and Site legends beautifully
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "grey92", color = "black"),
+    strip.text = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(face = "bold", size = 12)
+  ) +
+  labs(
+   # title = "Heat Tolerance Shifts Across K=4 Physiological Clusters",
+   # subtitle = "Showing unique cluster groupings and associated thermal performance",
+    x = "Photophysiological Cluster Assignment (K=4)",
+    y = expression(ED[50]~"("*degree*C*")"),
+   # color = "Species Identity",
+    shape = "Collection Site"
+  )
+
+# Display the plot
+print(plot_k4_shifts)
+
+# Save the plot with a broad layout to accommodate the side-by-side species view
+ggsave(here("Plots", "ED50_Shifts_K4_Faceted.png"), 
+       plot = plot_k4_shifts, width = 11, height = 6, dpi = 300)
+```
+ 
+ 
+```{r}
+
+
+#this is  mathematically removing the effect of their physiological cluster- does genetic lineage matter independent of current physiological state.
+k11ms_raw_emm <- emmeans(k11ms, ~ species | K_11)
+
+# 2. Convert to a clean dataframe, dropping rows that have no data (the NAs)
+cld_spp <- cld(k11ms_raw_emm, adjust = "tukey", Letters = letters) %>%
+  filter(!is.na(emmean)) %>%
+  mutate(.group = trimws(as.character(.group)))
+
+# Print this out to verify the column names before plotting!
+print(cld_spp) 
+
+cld_spp_plot <- cld_spp %>%
+  mutate(
+    K_11 = factor(paste("Cluster", K_11)),
+    species = toupper(species) # Standardize naming case if needed
+  )
+
+df_raw_clean <- df_modeling %>%
+  mutate(
+    species = toupper(species),
+    K_11 = factor(paste("Cluster", K_11))
+  )
+
+# 2. Clean the EMMeans CLD data frame identically
+cld_spp_plot <- cld_spp %>%
+  mutate(
+    species = toupper(species),
+    K_11 = factor(paste("Cluster", K_11)),
+    .group = trimws(as.character(.group))
+  )
+
+# 3. Dynamic layout math for text placement
+y_range <- max(cld_spp_plot$upper.CL, na.rm = TRUE) - min(cld_spp_plot$lower.CL, na.rm = TRUE)
+text_offset <- y_range * 0.06
+
+# 4. Generate the combined plot
+plot_jittered <- ggplot() +
+  # STEP A: Plot the raw data points in the background (jittered horizontally)
+  geom_jitter(
+    data = df_raw_clean, 
+    aes(x = species, y = ED50, color = species),
+    alpha = 0.35,       # Makes raw data slightly transparent
+    width = 0.2,        # Spread of the jittering
+    height = 0          # Do not jitter vertically (keeps true ED50 values)
+  ) +
+  # STEP B: Layer the EMMeans model results explicitly on top using a separate dataset
+  geom_errorbar(
+    data = cld_spp_plot,
+    aes(x = species, ymin = lower.CL, ymax = upper.CL),
+    color = "black", width = 0.15, linewidth = 1.1
+  ) +
+  geom_point(
+    data = cld_spp_plot,
+    aes(x = species, y = emmean, fill = species),
+    color = "black", shape = 21, size = 4.5, stroke = 1.5
+  ) +
+  # STEP C: Add the post-hoc significance letter labels
+  geom_text(
+    data = cld_spp_plot,
+    aes(x = species, y = upper.CL + text_offset, label = .group), 
+    color = "black", fontface = "bold", size = 5
+  ) +
+  # Split into identical grid panels by cluster
+  facet_wrap(~ K_11) + 
+  scale_color_brewer(palette = "Set1") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_bw(base_size = 14) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(face = "bold", angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold", size = 12),
+    strip.background = element_rect(fill = "gray95"),
+    panel.grid.major.x = element_blank() # Cleans up vertical grid lines
+  ) +
+  labs(
+    x = "Species Identity",
+    y = expression(ED[50]~"("*degree*C*")")
+  )
+
+print(plot_jittered)
+
+# --- 1. Create the new fused factor for K = 4 ---
+df_modeling <- df_modeling %>%
+  mutate(Spp_Cluster_11 = factor(paste(species, K_11, sep = "_")))
+
+# Print this so you can see exactly which clusters aabr and aglo landed in!
+cat("Sample counts per Species-Cluster combo (K=4):\n")
+print(table(df_modeling$Spp_Cluster_11))
+
+# --- 2. Fit the model ---
+k11ms_joint <- lmer(ED50 ~ Spp_Cluster_11 + (1 | site), 
+                   data = df_modeling, 
+                   REML = TRUE)
+
+# --- 3. Extract the pairwise comparisons ---
+joint_emm_11 <- emmeans(k11ms_joint, specs = ~ Spp_Cluster_11)
+all_pairs_11 <- as.data.frame(pairs(joint_emm_11, adjust = "tukey"))
+
+# --- 4. Look at shifts within species ---
+# This filters the giant list to ONLY show comparisons within the same species
+within_species_shifts_11 <- all_pairs_11 %>%
+  filter(
+    (str_detect(contrast, "aabr") & !str_detect(contrast, "aglo|ahya|icra")) |
+    (str_detect(contrast, "aglo") & !str_detect(contrast, "aabr|ahya|icra")) |
+    (str_detect(contrast, "icra") & !str_detect(contrast, "aabr|ahya|aglo"))
+  )
+
+print(within_species_shifts_11)
+```
+```{r}
+
+
+# --- 1. Filter out missing values and clean up factor levels for K=4 ---
+df_plot_k11 <- df_modeling %>%
+  filter(!is.na(K_11), !is.na(site), !is.na(ED50)) %>%
+  mutate(
+    species_label = toupper(trimws(species)),
+    site_factor   = as.factor(site)
+  )
+
+# --- 2. Define 8 explicit, high-contrast shapes to prevent the 6-shape cutoff ---
+custom_shapes <- c(15, 16, 17, 18, 21, 22, 23, 24)
+
+# --- 3. Build the Faceted Plot ---
+plot_k11_shifts <- ggplot(df_plot_k11, aes(x = as.factor(K_11), y = ED50, fill = site_factor)) +
+  
+  # Clean, minimalist boxplots showing the median and IQR distributions
+  geom_boxplot(alpha = 0.4, outlier.shape = NA, color = "grey30", fill = "grey98") +
+  
+  # Overlay individual data points, manually assigning our 8 shape codes
+  geom_jitter(aes(shape = site_factor, color = site_factor), 
+              width = 0.15, alpha = 0.8, size = 2.5) +
+  
+  # Separate panels for each species with their own x-axes to match who actually lived where
+  facet_wrap(~ species_label, scales = "free_x", nrow = 1) +
+  
+  # Color and Shape overrides
+  #scale_color_brewer(palette = "Set1") +
+  scale_shape_manual(values = custom_shapes) +
+  
+  # Aesthetic cleanups
+  theme_bw(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",              # Stacks Species and Site legends beautifully
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "grey92", color = "black"),
+    strip.text = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(face = "bold", size = 12)
+  ) +
+  labs(
+   # title = "Heat Tolerance Shifts Across K=11 Physiological Clusters",
+   # subtitle = "Showing unique cluster groupings and associated thermal performance",
+    x = "Photophysiological Cluster Assignment (K=11)",
+    y = expression(ED[50]~"("*degree*C*")"),
+   # color = "Species Identity",
+    shape = "Collection Site"
+  )
+
+# Display the plot
+print(plot_k11_shifts)
+
+# Save the plot with a broad layout to accommodate the side-by-side species view
+ggsave(here("Plots", "ED50_Shifts_K11_Faceted.png"), 
+       plot = plot_k11_shifts, width = 11, height = 6, dpi = 300)
+```
+ 
 
 ```{r}
 ##LOSE a lot of explanatory power when removing site to del with singularity
@@ -241,7 +843,7 @@ model_comp <- map_df(k_cols, function(k_name) {
 print(model_comp %>% arrange(AIC))
 
 # 1. Fit the final, optimal model structure
-final_model <- lmer(ED50 ~ species + K_3 + (1 | site), 
+final_model <- lmer(ED50 ~ species + K_5 + (1 | site), 
                     data = df_modeling, 
                     REML = TRUE)
 
@@ -251,21 +853,46 @@ summary(final_model)
 # 3. Check exactly how much heat tolerance separates the groups (in degrees C)
 tidy(k2ms, effects = "fixed")
 
-table(df_modeling$species, df_modeling$K_3)
+table(df_modeling$species, df_modeling$K_5)
 
-#
+emm_K4 <- emmeans(final_model, ~ K_5)
+pairs(emm_K4, adjust = "tukey")
 
+emm_spp <- emmeans(final_model, ~ species)
+pairs(emm_spp, adjust = "tukey")
 
-spp<- lmer(ED50 ~ species + (1|site), data = df_modeling)
-anova(spp)
-summary(spp)
-
-clust<-lmer(ED50 ~ K_3 + (1|site), data = df_modeling)
-anova(clust)
-summary(clust)
+# emm_joint <- emmeans(final_model, ~ species | K_3)
+# pairs(emm_joint, adjust = "tukey") #cant do interaction. few overlap
 
 
+#plot
 
+# 1. Convert EMMs to a readable dataframe
+emm_df <- as.data.frame(emmeans(final_model, ~ K_3))
+
+# 2. Build the plot
+ggplot() +
+  # Draw the raw data points in the background (jittered to prevent overlapping)
+  geom_jitter(data = df_modeling, 
+              aes(x = K_3, y = ED50, color = species), 
+              alpha = 0.4, width = 0.2, height = 0) +
+  
+  # Draw the model's EMMs as large point estimates
+  geom_point(data = emm_df, 
+             aes(x = K_3, y = emmean, group = species), 
+             color = "black", size = 4, position = position_dodge(width = 0.5)) +
+  
+  # Add Confidence Interval error bars from the model
+  geom_errorbar(data = emm_df, 
+                aes(x = K_3, ymin = lower.CL, ymax = upper.CL, group = species), 
+                color = "black", width = 0.1, position = position_dodge(width = 0.5)) +
+  
+  # Clean up formatting
+  #facet_wrap(~ species) + 
+  labs(title = "Model EMMs (with 95% CI) vs. Raw ED50 Data",
+       x = "Cluster (K_3)",
+       y = "ED50 (°C)") +
+  theme_minimal()
 ```
 ```{r}
 ggplot(df_modeling,
@@ -282,7 +909,8 @@ ggplot(df_modeling,
 
 
 ```{r}
-emm2 <- as.data.frame(emmeans(m1, ~K_3))
+emm2 <- as.data.frame(emmeans(final_model, ~K_3))
+pairs(emm2, adjust = "tukey")
 
 ggplot(emm2,
        aes(K_3, emmean)) +
@@ -312,7 +940,7 @@ ggplot(df_modeling,
 ```
 
 ```{r}
-emm2 <- as.data.frame(emmeans(m1, ~K_3))
+emm2 <- as.data.frame(emmeans(final_model, ~K_3))
 
 ggplot() +
   geom_jitter(data = df_modeling,
@@ -494,6 +1122,127 @@ ggplot() +
 
 
 ```{r}
-#
+##here 
+k4ms_cluster_emm <- emmeans(k4ms, specs = ~ K_4) 
+k4ms_clust <- pairs(k4ms_cluster_emm, adjust = "tukey")
+print(k4ms_clust) #yes, 3 is different from each
+cld_clusters <- cld(k4ms_clust, adjust = "tukey", Letters = letters)
+print(cld_clusters)
+
+# 1. Correct the CLD call to use the EMM object
+cld_clusters <- cld(k4ms_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  mutate(.group = trimws(.group))
+
+# 2. Generate Plot
+library(ggplot2)
+
+# --- 1. Generate the CLD letters for the clusters ---
+cld_clusters <- cld(k4ms_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  mutate(.group = trimws(.group))
+
+# --- 2. Build the Layered Plot ---
+plot_cluster_with_raw <- ggplot() +
+  
+  # LAYER 1: Raw data points in the background, jittered and colored by species
+  geom_jitter(data = df_modeling %>% filter(!is.na(K_3)), 
+              aes(x = as.factor(K_4), y = ED50, color = species),
+              width = 0.15, alpha = 0.4, size = 2.5) +
+  
+  # LAYER 2: Model-estimated marginal means (large open diamond)
+  geom_point(data = cld_clusters, 
+             aes(x = as.factor(K_4), y = emmean), 
+             size = 4.5, shape = 18, color = "black") +
+  
+  # LAYER 3: 95% Confidence Intervals calculated from the model
+  geom_errorbar(data = cld_clusters, 
+                aes(x = as.factor(K_4), ymin = lower.CL, ymax = upper.CL), 
+                width = 0.12, linewidth = 1.1, color = "black") +
+  
+  # LAYER 4: Post-hoc significance letters mapped cleanly above the error bars
+  geom_text(data = cld_clusters, 
+            aes(x = as.factor(K_4), y = upper.CL + 0.15, label = .group), 
+            fontface = "bold", size = 5, color = "black") +
+  
+  # Formatting & Aesthetics
+  scale_color_brewer(palette = "Set1") +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold", size = 12),
+    legend.position = "right"
+  ) +
+  labs(
+    title = "Physiological Cluster Thermal Performance",
+    subtitle = "Diamonds show model means (95% CI) over raw biological points",
+    x = "Photophysiological Cluster Assignment (K=3)",
+    y = expression(ED[50]~"("*degree*C*")"),
+    color = "Coral Species"
+  )
+
+# Display the plot
+print(plot_cluster_with_raw)
+
+# Save the plot
+ggsave(here("Plots", "EMM_Clusters_K3_with_RawData.png"), 
+       plot = plot_cluster_with_raw, width = 7, height = 5, dpi = 300)
+
+print(plot_cluster_emm)
+
+
+##
+#k11
+library(ggplot2)
+library(dplyr)
+library(multcomp)
+library(multcompView)
+
+# --- 1. Extract letters from the EMMs object (NOT the pairs contrast) ---
+# This forces R to assign letters directly to each of the 11 standalone clusters
+cld_clusters_k11 <- cld(k11ms_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  mutate(.group = trimws(.group))
+
+# --- 2. Print to confirm the formatting is fixed ---
+# You should now see a clean table with 11 rows showing each Cluster and its unique letter!
+cat("Cleaned Cluster Letter Assignments:\n")
+print(cld_clusters_k11[, c("K_11", "emmean", ".group")])
+
+# --- 3. Build the Fixed Layered Plot ---
+plot_cluster_with_raw_k11 <- ggplot() +
+  
+  # LAYER 1: Raw data points in the background
+  geom_jitter(data = df_modeling %>% filter(!is.na(K_11)), 
+              aes(x = as.factor(K_11), y = ED50, color = species),
+              width = 0.15, alpha = 0.4, size = 2.5) +
+  
+  # LAYER 2: Model-estimated marginal means (large open diamond)
+  geom_point(data = cld_clusters_k11, 
+             aes(x = as.factor(K_11), y = emmean), 
+             size = 4.5, shape = 18, color = "black") +
+  
+  # LAYER 3: 95% Confidence Intervals calculated from the model
+  geom_errorbar(data = cld_clusters_k11, 
+                aes(x = as.factor(K_11), ymin = lower.CL, ymax = upper.CL), 
+                width = 0.12, linewidth = 1.1, color = "black") +
+  
+  # LAYER 4: The correct distinct group letters mapped cleanly above the bars
+  geom_text(data = cld_clusters_k11, 
+            aes(x = as.factor(K_11), y = upper.CL + 0.15, label = .group), 
+            fontface = "bold", size = 3.5, color = "black") +
+  
+  # Formatting & Aesthetics
+  scale_color_brewer(palette = "Set1") +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold", size = 11),
+    legend.position = "right"
+  ) +
+  labs(
+    x = "Photophysiological Cluster Assignment (K=11)",
+    y = expression(ED[50]~"("*degree*C*")"),
+    color = "Coral Species"
+  )
+
+# Display the final fixed plot
+print(plot_cluster_with_raw_k11)
+
 ```
 
