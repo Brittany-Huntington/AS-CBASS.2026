@@ -1,0 +1,110 @@
+```{r}
+library(dplyr)
+library(here)
+library(ggplot2)
+library(performance)
+library(vegan)
+library(emmeans)
+library(lme4)
+library(lmerTest)
+library(broom.mixed)
+library(tidyverse)
+library(brms)
+library(mclogit)
+
+annot_master<-read.csv(here("Data", "cluster_and_ed50_data.csv")) #from phenotype_heatmap script
+df_modeling <- annot_master %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 2:15)
+```
+
+```{r}
+#to test k as teh response variable, need to use  a multinomial mixed-effects model. using mclogit packate and bayesian w brms
+# k_m_bayes <- brm(
+#   formula = K_3 ~ species + (1 | site), 
+#   data = df_modeling, 
+#   family = categorical(link = "logit"),
+#   chains = 4, iter = 2000, cores = 4 # Adjust cores based on your computer
+# )
+# 
+# # Check results
+# summary(k_m_bayes)
+
+
+#mclogit package provides a function called mblogit specifically for multinomial baseline-category logit models with random effects.
+
+# Ensure R knows these are categorical names, not math numbers
+# 1. Filter out empty sites AND rare group categories (2 and 4)
+df_icra_clean <- subset(df_icra, 
+                        !site %in% c(7, 8) & 
+                        K_10 %in% c(5, 6, 7, 10))
+
+table(df_icra_clean$site, df_icra_clean$K_10)
+
+# Fit a multinomial baseline category logit model with a random intercept
+icra_m10_multi <- mblogit(K_10 ~ ED50, 
+                          random = ~ 1 | site, 
+                          data = df_icra_clean)
+summary(icra_m10_multi)
+```
+```{r}
+# Subset to ONLY ICRA
+df_icra <- subset(df_modeling, species == "icra")
+df_icra <- subset(df_icra, !site %in% c(7, 8)) #remvoe sites 7 and 8 bc icra isnt in them
+df_icra$K_4<- as.numeric(df_icra$K_4)
+summary(df_icra)
+#
+
+# icra splits into 2 at k=4, using binary glmer
+# Let's say K_5 codes them as "ICRA_Group_A" vs "ICRA_Group_B"
+icra_m4 <- lmer(K_4 ~ (1 | site), data = df_icra)
+summary(icra_m4)
+model_performance(icra_m)
+
+icra_m4a <- glmer(K_4 ~ ED50+ (1 | site), data = df_icra, family = binomial)
+summary(icra_m4a)
+model_performance(icra_m4a)
+
+icra_m7 <- glmer(K_7 ~ (1 | site), data = df_icra, family = binomial)
+summary(icra_m7)
+model_performance(icra_m7) #site sig. r2 less
+
+icra_m7a <- glmer(K_7 ~ ED50+ (1 | site), data = df_icra, family = binomial)
+summary(icra_m7a)
+model_performance(icra_m7a) #site sig. r2 less
+
+icra_m10 <- glmer(K_10 ~ (1 | site), data = df_icra, family = binomial)
+summary(icra_m10)
+model_performance(icra_m10)
+
+icra_m10a <- glmer(K_10 ~ ED50+ (1 | site), data = df_icra, family = binomial)
+summary(icra_m10a)
+model_performance(icra_m10a)
+
+icra_m11 <- glmer(K_11 ~ (1 | site), data = df_icra, family = binomial)
+summary(icra_m)
+model_performance(icra_m)
+
+icra_m11a <- glmer(K_11 ~ (1 | site), data = df_icra, family = binomial)
+summary(icra_ma)
+model_performance(icra_ma)
+
+icra_m12 <- glmer(K_12 ~ (1 | site), data = df_icra, family = binomial)
+summary(icra_m)
+model_performance(icra_m)
+
+icra_m13 <- glmer(K_13 ~ (1 | site), data = df_icra, family = binomial)
+summary(icra_m)
+model_performance(icra_m)
+
+icra_m14 <- glmer(K_14 ~ (1 | site), data = df_icra, family = binomial)
+summary(icra_m)
+model_performance(icra_m)
+
+icra_m15 <- glmer(K_15 ~ (1 | site), data = df_icra, family = binomial)
+summary(icra_m)
+model_performance(icra_m)
+```
+
