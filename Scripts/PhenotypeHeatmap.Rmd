@@ -21,6 +21,29 @@ annot_master <- cluster_summary %>%
   left_join(ed50_data, by = "SampleID_clean")
 write.csv(annot_master, here("Data", "cluster_and_ed50_data.csv"))
 
+#make names right in seqid
+cleaned_names <- seqID$Name %>%
+  str_replace_all("algo", "aglo") %>%
+  # Extract: t + digits + species + ID number, ignoring any internal underscores
+  # Group 1 = time number, Group 2 = 4-letter species, Group 3 = individual number
+  str_replace_all("^t(\\d+)_?([a-z]+)_?(\\d+).*", "t\\1_\\2\\3")
+
+# 2. Assign it back to a new column in your dataframe
+seqID$SampleID_clean <- cleaned_names
+
+# Let's verify how a few turned out:
+head(seqID$SampleID_clean)
+  
+ annot_master <- annot_master %>%
+  # 1. Join the data frames together by your matching column
+  left_join(seqID, by = "SampleID_clean") %>%
+  # 2. Create the seqID column: If a column from seqID (like Name) is NOT NA,
+  #    give it a "D". Otherwise, leave it blank (or NA).
+  mutate(seqID_flag = ifelse(!is.na(Name), "D", NA))
+
+# Check to see how many "D" flags you generated!
+table(annot_master$seqID_flag, useNA = "always")
+  
 # Grab the hclust object directly from your pvclust output
 my_hclust <- cbb$hclust
 # --- 1. RESET: Keep the hclust object completely untouched ---
@@ -67,7 +90,7 @@ rownames(annotation_col) <- annotation_col$MessyID
 
 # Select your tracks and convert to factors
 annotation_col <- annotation_col %>% 
-  dplyr::select(species, K_3:K_11, ED50) %>%
+  dplyr::select(species, K_3:K_11, ED50, seqID_flag) %>%
   mutate(across(c(species, K_3:K_11), as.factor))
 
 write.csv(annotation_col, file = here( "Data", "annotation_col.csv"))
