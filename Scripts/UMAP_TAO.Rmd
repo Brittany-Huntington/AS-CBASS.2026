@@ -51,9 +51,85 @@ photophys <- read.csv(here("Data","AS26_PhenotypingData_expt.csv"), row.names = 
 #OLD UMAP CODE
 # Trajectory UMAPs 
 ## Photophys UMAP  
+```{r}
+# --- 1. Load the EXACT data cleaned by the Dendrogram script ---
+# This ensures rows, columns, NAs, and scaling are 100% identical
+load(here("Data", "Alls.cor_clean.RData")) 
+
+# Alls.cor_clean is already transposed, filtered, dropped of NAs/zero-var, and numeric.
+# We can pass it directly to the UMAP.
+photo_proc <- Alls.cor_clean %>% 
+  dplyr::select(where(~ sum(is.na(.)) == 0))
+
+# --- 3. Run UMAP safely ---
+photo_umapresult <- umap(
+  photo_proc, 
+  n_neighbors = 8, 
+  min_dist = 0.5, 
+  metric = "euclidean", 
+  n_components = 2
+)
+
+# --- 4. Plot ---
+plot(as.numeric(photo_umapresult$layout[,1]), as.numeric(photo_umapresult$layout[,2]), pch=19, cex=0.9, axes=T)
+```
+```{r}
+library(ggplot2)
+library(dplyr)
+library(stringr)
+
+photo_proc <- Alls.cor_clean %>% 
+  dplyr::select(where(~ sum(is.na(.)) == 0))
+
+photo_umapresult<-umap(photo_proc, n_neighbors= 50, min_dist= 0.001, metric="euclidean", n_components=2)
+
+# --- 2. Build the Tutuila-only plotting dataframe ---
+umap_plotting_data <- data.frame(
+  UMAP1    = photo_umapresult$layout[,1], 
+  UMAP2    = photo_umapresult$layout[,2], 
+  SampleID = rownames(photo_proc) # Expecting format: "t1_aabr1"
+) %>%
+  mutate(
+    # 1. Pull the site number directly from the beginning (e.g., "1")
+    SiteNum = as.numeric(str_extract(SampleID, "(?<=^t)\\d+")),
+    PlotLabel = as.character(SiteNum),
+    
+    # 2. Extract just the lowercase letters after the underscore (e.g., "aabr") and capitalize
+    Species = str_to_upper(str_extract(SampleID, "(?<=_)[a-z]+")),
+    
+    # 3. Pull out the colony number at the very end of the string (e.g., "1")
+    ColonyNum = as.numeric(str_extract(SampleID, "\\d+$")),
+    
+    # 4. Build your clean, padded Genotype label (e.g., "AABR_s01_c01")
+    Genotype = paste0(Species,
+                      "_s", formatC(SiteNum, flag = "0", width = 2),
+                      "_c", formatC(ColonyNum, flag = "0", width = 2))
+  ) %>%
+  dplyr::select(-SiteNum, -ColonyNum) # Drop the temporary math columns
+
+# --- 3. Generate the Tutuila Text-Label Plot ---
+ggplot(umap_plotting_data, aes(x = UMAP1, y = UMAP2)) +
+  # Renders the Site Number instead of dots
+  geom_text(aes(label = PlotLabel, color = Species),
+            size = 3.5,
+            fontface = "bold",
+            alpha = 0.8) +
+  
+  scale_color_brewer(palette = "Set1") +  
+  labs(x = "UMAP Dimension 1",
+       y = "UMAP Dimension 2",
+       color = "Species") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    legend.position = "right",
+    panel.grid.minor = element_blank()
+  )
+```
+
 
 ```{r photophys umap setup }
-######### set up photophys dataframe ######## 
+######### FOR FIJI INCLUSION ######## 
 longphoto <- as.data.frame(t(photophys))
 colnames(longphoto) <- longphoto[1,] 
 longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
@@ -84,7 +160,7 @@ plot(as.numeric(photo_umapresult$layout[,1]), as.numeric(photo_umapresult$layout
 umap_plotting_data <- data.frame(
   UMAP1    = photo_umapresult$layout[,1], 
   UMAP2    = photo_umapresult$layout[,2], 
-  SampleID = allphoto$SampleID
+  SampleID = photo_proc$SampleID
 ) %>%
   mutate(
     # Isolate Fiji vs Tutuila upfront for cleaner logic
@@ -143,33 +219,6 @@ ggplot(umap_plotting_data, aes(x = UMAP1, y = UMAP2)) +
     legend.position = "right"
   )
 
-#old
-# umap_plotting_data <- data.frame(
-#   UMAP1 = photo_umapresult$layout[,1], 
-#   UMAP2 = photo_umapresult$layout[,2], 
-#   SampleID = allphoto$SampleID,
-#   Site = as.numeric(str_extract(allphoto$SampleID, "(?<=t)\\d+(?=_)")), 
-#   Colony =(str_extract(allphoto$SampleID, "(?<=_).+?(?=\\.)")))
-# umap_plotting_data=umap_plotting_data %>% 
-#   mutate(Species =as.factor(str_to_upper(substr(Colony,1,4))),
-#          Genotype=paste0(str_to_upper(Species),
-#                          "_s",formatC(Site,flag=0,width=2),
-#                          "_c",formatC(substr(Colony,5,99),flag=0,width=2)))
-# 
-# # --- Plotting Code: Spp specific plots ---
-# ggplot(umap_plotting_data, aes(x = UMAP1, y = UMAP2)) +
-#   # 2. Plot the points (Start and End Locations)
-#   geom_text(aes(label=Site, color=Species),
-#             size = 3,
-#             alpha = 0.8) +
-#   
-#   labs(title = "Photophysiology UMAP",
-#        x = "UMAP Dimension 1",
-#        y = "UMAP Dimension 2") +
-#   theme_minimal()
-# #write.csv(umap_results$layout, "Final_UMAP_Coords.csv")
-# #ggsave(filename = 'Figures/UMAP/trajectory_photophys_splitbyspp_coloredbygeno_chull.png', plot = last_plot(), width = 7.5, height = 7.5, units = "in")
-# 
 
 ```
 ```{r}
@@ -222,53 +271,91 @@ ggplot(fiji_plotting_data, aes(x = UMAP1, y = UMAP2, color = Species)) +
 ### Load Data and scale 
 ```{r}
 set.seed(123)
-longphoto <- as.data.frame(t(photophys))
-colnames(longphoto) <- longphoto[1,] 
-longphoto <- as.data.frame(longphoto[-1:-5,]) # removing metrix, stage, col 
-longphoto[,2:955] <- lapply(longphoto[,2:955], as.numeric)
-longphoto$SampleID <- rownames(longphoto)
-longphoto <- longphoto %>% relocate(SampleID)
-fullyears <- longphoto 
-fullyears <- data.frame(fullyears[, colSums(is.na(fullyears)) == 0])
 
-allphoto <- fullyears %>% dplyr::select(-contains('Fo'), -contains('Fm'))
+# =========================================================================
+# --- 1. Your New Pre-Processing & Z-Score Scaling Steps ---
+# =========================================================================
 
-##### dataset needs to have metrics in columns, samples in rows 
-rownames(allphoto) <- allphoto$SampleID
-photophys_clean <- allphoto %>% 
-  dplyr::select(-c(SampleID)) # remove non-numeric columns
+# Ensure metrics are in columns, samples in rows using your consolidated data
+# (Replacing 'allphoto' with 'Alls.cor_clean' from your unified script)
+photophys_clean <- Alls.cor_clean 
 
-head(photophys_clean) 
-names(photophys_clean)[colSums(is.na(photophys_clean)) > 0]
-photophys_clean <- photophys_clean %>% mutate(across(everything(), as.numeric))
-allphoto[,2:ncol(allphoto)] <- allphoto[,2:ncol(allphoto)] %>% mutate(across(everything(), as.numeric))
-
+# Scale using Z-scores
 photophys_scaled <- photophys_clean %>%
-  scale() %>% # scaling with zscores instead 
+  scale() %>% 
   as.data.frame()
 
-#Sort out NAs in photophys_scaled data
-dim(photophys_scaled)
-NA_ij=which(is.na(photophys_scaled),arr.ind = T)
-NA_ic=sort(table(NA_ij[,1]),decreasing = T);NA_ij#Every row has 102 NAs
-NA_jc=sort(table(NA_ij[,2]),decreasing = T);NA_jc#There are 102 metrics that are full NA
-NA_j=as.numeric(names(NA_jc))
-NA_ppParams=names(photophys_scaled)[NA_jc]
+# Identify metrics that became completely NA after scaling (SD = 0 columns)
+NA_ij = which(is.na(photophys_scaled), arr.ind = TRUE)
+NA_jc = sort(table(NA_ij[,2]), decreasing = TRUE)
+NA_ppParams = names(photophys_scaled)[as.numeric(names(NA_jc))]
 
-#drop columns that end up NA in scaled data
-photophys_scaled.=photophys_scaled %>% dplyr::select(-all_of(NA_ppParams))
-dim(photophys_scaled.)
-photophys_clean.=photophys_clean %>% dplyr::select(-all_of(NA_ppParams))
-dim(photophys_scaled.)
-allphoto.=allphoto %>% dplyr::select(-all_of(NA_ppParams))
-dim(photophys_scaled.)
-ppParam=names(photophys_scaled.)
+# Drop those dead columns
+photophys_scaled. = photophys_scaled %>% dplyr::select(-all_of(NA_ppParams))
+
+# CRITICAL UMAP GUARD: Drop any remaining columns with a standalone NA 
+# so the UMAP function doesn't crash
+photo_proc <- photophys_scaled. %>% 
+  dplyr::select(where(~ sum(is.na(.)) == 0))
+
+# =========================================================================
+# --- 2. Run UMAP on the Cleaned, Scaled Data ---
+# =========================================================================
+photo_umapresult <- umap(
+  photo_proc, 
+  n_neighbors = 8, 
+  min_dist = 0.5, 
+  metric = "euclidean", 
+  n_components = 2
+)
+
+# =========================================================================
+# --- 3. Build Plotting Dataframe (Tutuila Only) ---
+# =========================================================================
+umap_plotting_data <- data.frame(
+  UMAP1    = photo_umapresult$layout[,1], 
+  UMAP2    = photo_umapresult$layout[,2], 
+  SampleID = rownames(photo_proc)
+) %>%
+  mutate(
+    # Pull out pieces based on your lowercase t1_aabr1 format
+    SiteNum   = as.numeric(str_extract(SampleID, "(?<=^t)\\d+")),
+    PlotLabel = as.character(SiteNum),
+    Species   = str_to_upper(str_extract(SampleID, "(?<=_)[a-z]+")),
+    ColonyNum = as.numeric(str_extract(SampleID, "\\d+$")),
+    Genotype  = paste0(Species,
+                       "_s", formatC(SiteNum, flag = "0", width = 2),
+                       "_c", formatC(ColonyNum, flag = "0", width = 2))
+  ) %>%
+  dplyr::select(-SiteNum, -ColonyNum)
+
+# =========================================================================
+# --- 4. Plot ---
+# =========================================================================
+ggplot(umap_plotting_data, aes(x = UMAP1, y = UMAP2)) +
+  geom_text(aes(label = PlotLabel, color = Species),
+            size = 3.5,
+            fontface = "bold",
+            alpha = 0.8) +
+  scale_color_brewer(palette = "Set1") +  
+  labs(x = "UMAP Dimension 1",
+       y = "UMAP Dimension 2",
+       color = "Species",
+       title = "Photophysiology UMAP",
+       subtitle = "Z-score scaled, Tutuila Site Labels") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    legend.position = "right",
+    panel.grid.minor = element_blank()
+  )
 
 ```
 
 #Incorporate ED50, and ID correlates
 ```{r}
-ed=read.csv(file = here("Data", "AS26_ED50_CI_BIC_TAO.csv"))
+#ed=read.csv(file = here("Data", "AS26_ED50_CI_BIC_TAO.csv")) # this is weird. one ed50 is in the 40s??
+
 allphoto.ed=allphoto. %>% mutate(
   Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
   Colony =(str_extract(SampleID, "(?<=_).+?(?=\\.)")),
