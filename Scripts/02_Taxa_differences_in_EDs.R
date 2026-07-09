@@ -15,7 +15,8 @@ library(lmerTest)
 library(emmeans)
 library(purrr)
 library(performance)
-
+library(here)
+library(multcomp)
 
 rm(list = ls())
 
@@ -128,13 +129,18 @@ emmeans_table <- purrr::imap_dfr(models, function(m, ed) {
 
 emmeans_table
 
-#check residual diagnostics for ED95
-m_ED95 <- lmer(ED_value ~ Species + (1|Site), data = ED95_df)
+#check residual diagnostics for ED50 only
+m_ED50 <- lmer(ED_value ~ Species + (1|Site), data = ED50_df)
+summary(m_ED50)
+anova(m_ED50)
+species_emms <- emmeans(m_ED50, ~ Species)
+species_letters <- cld(species_emms, Letters = letters, adjust = "tukey")
+print(species_letters)
 # residual diagnostics
 par(mfrow = c(1,2))
-plot(resid(m_ED95) ~ fitted(m_ED95))
-qqnorm(resid(m_ED95))
-qqline(resid(m_ED95))
+plot(resid(m_ED50) ~ fitted(m_ED50))
+qqnorm(resid(m_ED50))
+qqline(resid(m_ED50))
 
 
 
