@@ -1,0 +1,208 @@
+---
+title: "Phenotype cluster CBASS analysis"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(here)
+library(dplyr)
+library(readxl)
+library(lmerTest)
+library(emmeans)
+library(broom)
+library(lme4)
+library(car)
+library(corrplot)
+library(Hmisc )
+rm(list = ls())
+
+#calculating ED50 for all datasets and combining with metadata
+#read in data
+file_path <-here("Data")
+  cbass<-read.csv("Data/full_cbass_dataset.csv")
+  
+
+#long format
+ED_long <- df_clean %>%
+  pivot_longer(
+    cols = c(ED5, ED50, ED95, DW),
+    names_to = "ED_level",
+    values_to = "ED_value"
+  ) %>%
+  mutate(Species = factor(Species, levels = c("AABR", "AHYA", "AGLO", "ICRA")))
+
+#subset each value
+ED50 <- ED_long %>% filter(ED_level == "ED50")
+ED5<- ED_long %>% filter(ED_level == "ED5")
+ED95<- ED_long %>% filter(ED_level == "ED95")
+DW<- ED_long %>% filter(ED_level == "DW")
+
+#subset each spp
+ICRA <- df_clean %>% filter(Species == "ICRA")
+AGLO<- df_clean %>% filter(Species == "AGLO")
+AABR<- df_clean %>% filter(Species == "AABR")
+AHYA<- df_clean %>% filter(Species == "AHYA")
+
+#make sure cluster is factor not numeric
+df_clean$Cluster_4 <- as.factor(df_clean$Cluster_4)
+df_clean$Cluster_5 <- as.factor(df_clean$Cluster_5)
+df_clean$Cluster_6 <- as.factor(df_clean$Cluster_6)
+df_clean$Cluster_7 <- as.factor(df_clean$Cluster_7)
+df_clean$Cluster_8 <- as.factor(df_clean$Cluster_8)
+```
+
+```{r}
+#Make a boxplot showing ED by cluster
+ED_long %>%
+  filter(ED_level == "ED50") %>%
+  mutate(Site = as.factor(Site))%>%
+  mutate(Cluster_4 = as.factor(Cluster_4)) %>%
+  ggplot(aes(x = Cluster_4, y = ED_value, fill = Cluster_4)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  geom_jitter(width = 0.15, alpha = 0.6, size = 2, fill = Site) +
+  facet_wrap(~Species, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "Phenotype Cluster",
+    y = "ED50",
+    title = "ED50 variation among phenotype clusters within species"
+  )
+
+ggplot(df_clean, aes(x = Cluster_8, y = ED50, color = Cluster_8, fill = Cluster_8)) +
+  geom_jitter(alpha = 0.3, width = 0.15) +
+  stat_summary(fun = mean, geom = "point", size = 3) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2) +
+  facet_wrap("Species")+
+   scale_color_viridis_d(option = "H") 
+
+#color by site
+cluster_cols <- c(
+  "1" = "#1b9e77",
+  "2" = "#d95f02",
+  "3" = "#7570b3",
+  "4" = "#e7298a",
+  "5" = "yellow",
+  "6" = "lightblue",
+  "7" = "grey",
+  "8" = "white"
+)
+
+ED_long %>%
+  filter(ED_level == "ED50", Species == "ICRA") %>%
+  mutate(
+    Site = as.factor(Site),
+    Cluster_8 = as.factor(Cluster_8)
+  ) %>%
+  ggplot(aes(x = Cluster_8, y = ED_value, fill = Cluster_8)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6, color = "black") +
+  geom_jitter(
+  aes(color = Site, shape = Site),
+  width = 0.15,
+  alpha = 0.7,
+  size = 2
+) +
+scale_shape_manual(values = c(16, 17, 15, 18, 3, 7, 8, 2))+
+  theme_bw() +
+  labs(
+    x = "Phenotype Cluster",
+    y = "ED50",
+    title = "ICRA: ED50 across phenotype clusters"
+  )+
+    scale_fill_manual(values = cluster_cols)
+
+```
+
+
+```{r}
+#look for cluster with lowest AIC in model
+
+#Here analyzing cluster as within-species explanatory trait, not across spp.
+
+#main spp model (pick whether interaction is best or not)
+m1<-lmer(ED50 ~ Species + Colony_depth_ft + Partial_mortality + Size_cm + (1|Site),
+ data=df_clean
+)
+
+m2<-lmer(ED50 ~ Species * (Colony_depth_ft + Partial_mortality + Size_cm) + (1|Site),
+ data=df_clean
+)
+
+anova(m1, m2)
+#m1 has lower AIC
+
+summary(m1)
+```
+
+
+```{r}
+# run model for each individual spp. 
+m_icra<-lmer(ED50 ~ Cluster_5 + Colony_depth_ft + Partial_mortality + Size_cm+ (1|Site), data=ICRA)
+m_icra1<-lmer(ED50 ~ Cluster_5 + (1|Site), data=ICRA)
+
+m_aglo<-lmer(ED50 ~ Cluster_5 + Colony_depth_ft + Partial_mortality + Size_cm+ (1|Site), data=AGLO)
+m_aglo1<-lmer(ED50 ~ Cluster_5 + (1|Site), data=AGLO)
+
+m_aabr<-lmer(ED50 ~ Cluster_5 + Colony_depth_ft + Partial_mortality + Size_cm+ (1|Site), data=AABR)
+m_aabr1<-lmer(ED50 ~ Cluster_5 + (1|Site), data=AABR)
+
+summary(m_icra)
+summary(m_icra1)
+#summary(m_ahya)
+summary(m_aglo)
+summary(m_aglo1)
+summary(m_aabr)
+summary(m_aabr1)
+
+#ahya only one group for Cluster_4
+
+anova(m_icra, m_icra1) #1 is lower AIC
+anova(m_aglo, m_aglo1) #1 is lower AIC
+anova(m_aabr, m_aabr1) #1 is lower AIC
+
+emmeans(m_aabr1, pairwise ~ Cluster_5)
+emmeans(m_icra1, pairwise ~ Cluster_5)
+emmeans(m_aglo1, pairwise ~ Cluster_5)
+#emmeans(m_ahya, pairwise ~ Cluster_5)
+```
+```{r}
+#run t test for each spp indivudually (this doesnt take into account site as random factor)
+  
+#test normality with Shapiro test
+  ICRA %>%
+  #group_by(Cluster_4) %>%
+  summarise(p_value = shapiro.test(ED50)$p.value)
+  
+  AGLO %>%
+    #group_by(Cluster_4) %>%
+  summarise(p_value = shapiro.test(ED50)$p.value)
+  
+  AABR %>%
+   # group_by(Cluster_4) %>%
+  summarise(p_value = shapiro.test(ED50)$p.value)
+  
+ #AHYA is only one group 
+  AHYA%>%
+    summarise(p_value = shapiro.test(ED50)$p.value)
+  # Not normal 0.045
+  
+#Homogeneity of varience
+  
+  leveneTest(ED50 ~ Cluster_4, data = ICRA)
+  leveneTest(ED50 ~ Cluster_4, data = AGLO)
+  leveneTest(ED50 ~ Cluster_4, data = AABR)
+  #leveneTest(ED50 ~ Cluster_4, data = AHYA) #needs 2 or more levels
+
+#Run T test
+  t.test(formula = ED50 ~ Cluster_4, data=ICRA, var.equal = TRUE )
+  # p-value = 0.03398 
+
+  t.test(formula = ED50 ~ Cluster_4, data=AGLO, var.equal = TRUE )
+  #p-value = 0.8928
+  
+    t.test(formula = ED50 ~ Cluster_4, data=AABR, var.equal = TRUE )
+    #p-value = 0.06691
+  
+```
+
+
