@@ -60,13 +60,24 @@ k13ms <- lmer(ED50 ~ species + K_13 + (1 | site), data = df_modeling, REML = TRU
 k14ms <- lmer(ED50 ~ species + K_14 + (1 | site), data = df_modeling, REML = TRUE)
 
 #interaction
-k3ms <- lmer(ED50 ~ species * K_3 + (1 | site), data = df_modeling, REML = TRUE)
-k4ms <- lmer(ED50 ~ species * K_4 + (1 | site), data = df_modeling, REML = TRUE)
+k3msi <- lmer(ED50 ~ species * K_3 + (1 | site), data = df_modeling, REML = TRUE)
+k4msi <- lmer(ED50 ~ species * K_4 + (1 | site), data = df_modeling, REML = TRUE)
+k5msi <- lmer(ED50 ~ species * K_5 + (1 | site), data = df_modeling, REML = TRUE)
+k6msi <- lmer(ED50 ~ species * K_6 + (1 | site), data = df_modeling, REML = TRUE)
+k7msi <- lmer(ED50 ~ species * K_7 + (1 | site), data = df_modeling, REML = TRUE)
+k8msi <- lmer(ED50 ~ species * K_8 + (1 | site), data = df_modeling, REML = TRUE)
+k9msi <- lmer(ED50 ~ species * K_9 + (1 | site), data = df_modeling, REML = TRUE)
+k10msi <- lmer(ED50 ~ species * K_10 + (1 | site), data = df_modeling, REML = TRUE)
+k11msi <- lmer(ED50 ~ species * K_11 + (1 | site), data = df_modeling, REML = TRUE)
+k12msi <- lmer(ED50 ~ species * K_12 + (1 | site), data = df_modeling, REML = TRUE)
+k13msi <- lmer(ED50 ~ species * K_13 + (1 | site), data = df_modeling, REML = TRUE)
+k14msi <- lmer(ED50 ~ species * K_14 + (1 | site), data = df_modeling, REML = TRUE)
+k15msi <- lmer(ED50 ~ species * K_15 + (1 | site), data = df_modeling, REML = TRUE)
 
 model_comparison <- compare_performance(
   spp_m,
   k2m, k3m, k4m, k5m, k6m, k7m, k8m, k9m, k10m, k11m, k12m, k13m, k14m,
-  k2ms, k3ms, k4ms, km5s, k6ms, k7ms, k8ms, k9ms, k10ms, k11ms, k12ms, k13ms, k14ms,
+  k2ms, k3ms, k4ms, km5s, k6ms, k7ms, k8ms, k9ms, k10ms, k11ms, k12ms, k13ms, k14ms, k3msi, k4msi,
   metrics = c("AIC", "BIC", "R2_marginal", "R2_conditional")
 )
 
@@ -93,7 +104,8 @@ all_models <- list(
   "k11m"  = k11m,  "k11ms" = k11ms,
   "k12m"  = k12m,  "k12ms" = k12ms,
   "k13m"  = k13m,  "k13ms" = k13ms,
-  "k14m"  = k14m,  "k14ms" = k14ms
+  "k14m"  = k14m,  "k14ms" = k14ms,
+  "k3msi" = k3msi, "k4msi" = k4msi
 )
 
 # 2. Extract AIC, BIC, and both R2 values together
@@ -679,9 +691,10 @@ plot_jittered <- ggplot() +
   labs(
     x = "Species Identity",
     y = expression(ED[50]~"("*degree*C*")")
-  )
+  ) 
 
 print(plot_jittered)
+
 
 # --- 1. Create the new fused factor for K = 4 ---
 df_modeling <- df_modeling %>%

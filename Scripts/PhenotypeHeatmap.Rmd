@@ -90,8 +90,8 @@ rownames(annotation_col) <- annotation_col$MessyID
 
 # Select your tracks and convert to factors
 annotation_col <- annotation_col %>% 
-  dplyr::select(species, K_3:K_11, ED50, seqID_flag) %>%
-  mutate(across(c(species, K_3:K_11), as.factor))
+  dplyr::select(species, K_3, K_4,K_11, ED50, seqID_flag) %>%
+  mutate(across(c(species, K_3, K_4,K_11), as.factor))
 
 write.csv(annotation_col, file = here( "Data", "annotation_col.csv"))
 
@@ -148,7 +148,7 @@ my_breaks <- seq(-3, 3, length.out = 101)
 
 #plot heatmap
 jpeg(
-  file = here("Plots", "Sorted_Grouped_Physiological_Heatmap_ks.jpg"), 
+  file = here("Plots", "Sorted_Grouped_Physiological_Heatmap_k3411.jpg"), 
   width = 12, 
   height = 10, 
   units = "in", 
