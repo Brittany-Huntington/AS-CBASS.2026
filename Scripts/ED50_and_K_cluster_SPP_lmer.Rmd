@@ -1,0 +1,394 @@
+```{r}
+rm(list = ls())
+library(dplyr)
+library(here)
+library(ggplot2)
+library(performance)
+library(vegan)
+library(emmeans)
+library(lme4)
+library(lmerTest)
+library(broom.mixed)
+library(tidyverse)
+library(multcomp)
+library(multcompView)
+
+annot_master<-read.csv(here("Data", "cluster_and_ed50_data.csv")) #from phenotype_heatmap script
+df_modeling <- annot_master %>%
+  mutate(across(c(starts_with("K_"), site), as.factor)) %>%
+  filter(!is.na(ED50), !is.na(site))
+
+k_cols <- paste0("K_", 3:15)
+```
+
+```{r}
+#icra
+icra<- df_modeling%>%
+  filter(species == "icra")
+
+#removing the odd samples.
+
+ikm <- list()
+
+for (i in 2:15) {
+  k_var <- paste0("K_", i)
+  
+  if (!k_var %in% names(icra)) next
+  
+  # Drop empty factor levels for the K variable
+  active_levels <- table(droplevels(as.factor(icra[[k_var]])))
+  
+  # Skip if K only has 1 group represented in this subset
+  if (length(active_levels) < 2) {
+    warning(paste("Skipping", k_var, "because it only contains 1 active factor level in the data."))
+    next
+  }
+  
+  # 
+  form_base <- as.formula(paste("ED50 ~", k_var, "+ (1 | site)"))
+  ikm[[paste0("ik", i, "m")]] <- lmer(form_base, data = icra, REML = TRUE)
+}
+
+#
+all_models <- c(
+  list("ispp_m" = ikm), 
+  ikm
+)
+
+# 2. Extract metrics safely
+master_model_table <- imap_dfr(all_models, function(model_obj, model_name) {
+  
+  # Safeguard: Skip elements that aren't actually fitted model objects
+  if (is.list(model_obj) && !inherits(model_obj, "merMod")) {
+    warning(paste("Skipping", model_name, "because it is a raw list, not a fitted model."))
+    return(NULL)
+  }
+  
+  # Safely extract performance metrics
+  perf    <- tryCatch(model_performance(model_obj), error = function(e) NULL)
+  r2_vals <- tryCatch(r2(model_obj), error = function(e) NULL)
+  
+  # Fallback to NA if extraction fails for a specific model
+  aic_val <- if (!is.null(perf$AIC)) round(perf$AIC, 1) else NA
+  bic_val <- if (!is.null(perf$BIC)) round(perf$BIC, 1) else NA
+  r2_m    <- if (!is.null(r2_vals$R2_marginal)) round(r2_vals$R2_marginal, 3) else NA
+  r2_c    <- if (!is.null(r2_vals$R2_conditional)) round(r2_vals$R2_conditional, 3) else NA
+  
+  data.frame(
+    Model_Name      = model_name,
+    AIC             = aic_val,
+    BIC             = bic_val,
+    Marginal_R2     = r2_m,
+    Conditional_R2  = r2_c,
+    stringsAsFactors = FALSE
+  )
+})
+
+# 3. View sorted results
+master_model_table <- master_model_table %>% arrange(AIC)
+print(master_model_table)
+
+###plot
+library(ggeffects)
+
+# 1. Change "ik5m" to whatever model won your AIC comparison
+winning_model <- ikm[["ik3m"]] 
+
+# 2. Extract model predictions for your specific K variable
+# (Swap 'K_5' with whichever K matched your winning model)
+predictions <- ggpredict(winning_model, terms = "K_3")
+
+# 3. Plot the final relationship
+ggplot() +
+  # 1. Raw data points colored by site
+  geom_jitter(data = icra, aes(x = K_3, y = ED50, color = site), width = 0.1, alpha = 0.6) +
+  
+  # 2. Model fit prediction line (Added group = 1)
+  geom_line(data = predictions, aes(x = x, y = predicted, group = 1), linewidth = 1.2, color = "black") +
+  
+  # 3. Model uncertainty confidence ribbon (Added group = 1)
+  geom_ribbon(data = predictions, aes(x = x, ymin = conf.low, ymax = conf.high, group = 1), alpha = 0.15) +
+  
+  labs(
+    title = "Predicted Effect on ED50",
+    x = "K=3 Value Assignment",
+    y = "ED50 Response"
+  ) +
+  theme_classic()
+
+```
+```{r}
+#alo
+aglo<- df_modeling%>%
+  filter(species == "aglo")
+
+agkm <- list()
+
+for (i in 2:15) {
+  k_var <- paste0("K_", i)
+  
+  if (!k_var %in% names(aglo)) next
+  
+  # Drop empty factor levels for the K variable
+  active_levels <- table(droplevels(as.factor(aglo[[k_var]])))
+  
+  # Skip if K only has 1 group represented in this subset
+  if (length(active_levels) < 2) {
+    warning(paste("Skipping", k_var, "because it only contains 1 active factor level in the data."))
+    next
+  }
+  
+  # 
+  form_base <- as.formula(paste("ED50 ~", k_var, "+ (1 | site)"))
+  agkm[[paste0("agk", i, "m")]] <- lmer(form_base, data = aglo, REML = TRUE)
+}
+
+#
+agall_models <- c(
+  list("agspp_m" = agkm), 
+  agkm
+)
+
+# 2. Extract metrics safely
+master_model_table_ag <- imap_dfr(agall_models, function(model_obj, model_name) {
+  
+  # Safeguard: Skip elements that aren't actually fitted model objects
+  if (is.list(model_obj) && !inherits(model_obj, "merMod")) {
+    warning(paste("Skipping", model_name, "because it is a raw list, not a fitted model."))
+    return(NULL)
+  }
+  
+  # Safely extract performance metrics
+  perf    <- tryCatch(model_performance(model_obj), error = function(e) NULL)
+  r2_vals <- tryCatch(r2(model_obj), error = function(e) NULL)
+  
+  # Fallback to NA if extraction fails for a specific model
+  aic_val <- if (!is.null(perf$AIC)) round(perf$AIC, 1) else NA
+  bic_val <- if (!is.null(perf$BIC)) round(perf$BIC, 1) else NA
+  r2_m    <- if (!is.null(r2_vals$R2_marginal)) round(r2_vals$R2_marginal, 3) else NA
+  r2_c    <- if (!is.null(r2_vals$R2_conditional)) round(r2_vals$R2_conditional, 3) else NA
+  
+  data.frame(
+    Model_Name      = model_name,
+    AIC             = aic_val,
+    BIC             = bic_val,
+    Marginal_R2     = r2_m,
+    Conditional_R2  = r2_c,
+    stringsAsFactors = FALSE
+  )
+})
+
+# 3. View sorted results
+master_model_table_ag <- master_model_table_ag %>% arrange(AIC)
+print(master_model_table_ag)
+
+# 1. Change "ik5m" to whatever model won your AIC comparison
+winning_model <- agkm[["agk7m"]] 
+
+# 2. Extract model predictions for your specific K variable
+# (Swap 'K_5' with whichever K matched your winning model)
+predictions <- ggpredict(winning_model, terms = "K_7")
+
+# 3. Plot the final relationship
+ggplot() +
+  # 1. Raw data points colored by site
+  geom_jitter(data = aglo, aes(x = K_7, y = ED50, color = site), width = 0.1, alpha = 0.6) +
+  
+  # 2. Model fit prediction line (Added group = 1)
+  geom_line(data = predictions, aes(x = x, y = predicted, group = 1), linewidth = 1.2, color = "black") +
+  
+  # 3. Model uncertainty confidence ribbon (Added group = 1)
+  geom_ribbon(data = predictions, aes(x = x, ymin = conf.low, ymax = conf.high, group = 1), alpha = 0.15) +
+  
+  labs(
+    title = "Predicted Effect on ED50",
+    x = "K=7 Value Assignment",
+    y = "ED50 Response"
+  ) +
+  theme_classic()
+
+```
+
+```{r}
+#aabr
+aabr<- df_modeling%>%
+  filter(species == "aabr")
+
+abkm <- list()
+
+for (i in 2:15) {
+  k_var <- paste0("K_", i)
+  
+  if (!k_var %in% names(aabr)) next
+  
+  # Drop empty factor levels for the K variable
+  active_levels <- table(droplevels(as.factor(aabr[[k_var]])))
+  
+  # Skip if K only has 1 group represented in this subset
+  if (length(active_levels) < 2) {
+    warning(paste("Skipping", k_var, "because it only contains 1 active factor level in the data."))
+    next
+  }
+  
+  # 
+  form_base <- as.formula(paste("ED50 ~", k_var, "+ (1 | site)"))
+  abkm[[paste0("aak", i, "m")]] <- lmer(form_base, data = aabr, REML = TRUE)
+}
+
+#
+aball_models <- c(
+  list("abspp_m" = abkm), 
+  abkm
+)
+
+# 2. Extract metrics safely
+master_model_table_ab <- imap_dfr(aball_models, function(model_obj, model_name) {
+  
+  # Safeguard: Skip elements that aren't actually fitted model objects
+  if (is.list(model_obj) && !inherits(model_obj, "merMod")) {
+    warning(paste("Skipping", model_name, "because it is a raw list, not a fitted model."))
+    return(NULL)
+  }
+  
+  # Safely extract performance metrics
+  perf    <- tryCatch(model_performance(model_obj), error = function(e) NULL)
+  r2_vals <- tryCatch(r2(model_obj), error = function(e) NULL)
+  
+  # Fallback to NA if extraction fails for a specific model
+  aic_val <- if (!is.null(perf$AIC)) round(perf$AIC, 1) else NA
+  bic_val <- if (!is.null(perf$BIC)) round(perf$BIC, 1) else NA
+  r2_m    <- if (!is.null(r2_vals$R2_marginal)) round(r2_vals$R2_marginal, 3) else NA
+  r2_c    <- if (!is.null(r2_vals$R2_conditional)) round(r2_vals$R2_conditional, 3) else NA
+  
+  data.frame(
+    Model_Name      = model_name,
+    AIC             = aic_val,
+    BIC             = bic_val,
+    Marginal_R2     = r2_m,
+    Conditional_R2  = r2_c,
+    stringsAsFactors = FALSE
+  )
+})
+
+# 3. View sorted results
+master_model_table_ab <- master_model_table_ab %>% arrange(AIC)
+print(master_model_table_ab)
+
+# 1. Change "ik5m" to whatever model won your AIC comparison
+winning_model <- abkm[["aak6m"]] 
+
+# 2. Extract model predictions for your specific K variable
+# (Swap 'K_5' with whichever K matched your winning model)
+predictions <- ggpredict(winning_model, terms = "K_6")
+
+# 3. Plot the final relationship
+ggplot() +
+  # 1. Raw data points colored by site
+  geom_jitter(data = aabr, aes(x = K_6, y = ED50, color = site), width = 0.1, alpha = 0.6) +
+  
+  # 2. Model fit prediction line (Added group = 1)
+  geom_line(data = predictions, aes(x = x, y = predicted, group = 1), linewidth = 1.2, color = "black") +
+  
+  # 3. Model uncertainty confidence ribbon (Added group = 1)
+  geom_ribbon(data = predictions, aes(x = x, ymin = conf.low, ymax = conf.high, group = 1), alpha = 0.15) +
+  
+  labs(
+    title = "Predicted Effect on ED50",
+    x = "K=6 Value Assignment",
+    y = "ED50 Response"
+  ) +
+  theme_classic()
+
+```
+```{r}
+#ahya
+ahya<- df_modeling%>%
+  filter(species == "ahya")
+
+aykm <- list()
+
+for (i in 2:15) {
+  k_var <- paste0("K_", i)
+  
+  if (!k_var %in% names(ahya)) next
+  
+  # Drop empty factor levels for the K variable
+  active_levels <- table(droplevels(as.factor(ahya[[k_var]])))
+  
+  # Skip if K only has 1 group represented in this subset
+  if (length(active_levels) < 2) {
+    warning(paste("Skipping", k_var, "because it only contains 1 active factor level in the data."))
+    next
+  }
+  
+  # 
+  form_base <- as.formula(paste("ED50 ~", k_var, "+ (1 | site)"))
+  aykm[[paste0("ayk", i, "m")]] <- lmer(form_base, data = ahya, REML = TRUE)
+}
+
+#
+ayall_models <- c(
+  list("ayspp_m" = aykm), 
+  aykm
+)
+
+# 2. Extract metrics safely
+master_model_table_ay <- imap_dfr(ayall_models, function(model_obj, model_name) {
+  
+  # Safeguard: Skip elements that aren't actually fitted model objects
+  if (is.list(model_obj) && !inherits(model_obj, "merMod")) {
+    warning(paste("Skipping", model_name, "because it is a raw list, not a fitted model."))
+    return(NULL)
+  }
+  
+  # Safely extract performance metrics
+  perf    <- tryCatch(model_performance(model_obj), error = function(e) NULL)
+  r2_vals <- tryCatch(r2(model_obj), error = function(e) NULL)
+  
+  # Fallback to NA if extraction fails for a specific model
+  aic_val <- if (!is.null(perf$AIC)) round(perf$AIC, 1) else NA
+  bic_val <- if (!is.null(perf$BIC)) round(perf$BIC, 1) else NA
+  r2_m    <- if (!is.null(r2_vals$R2_marginal)) round(r2_vals$R2_marginal, 3) else NA
+  r2_c    <- if (!is.null(r2_vals$R2_conditional)) round(r2_vals$R2_conditional, 3) else NA
+  
+  data.frame(
+    Model_Name      = model_name,
+    AIC             = aic_val,
+    BIC             = bic_val,
+    Marginal_R2     = r2_m,
+    Conditional_R2  = r2_c,
+    stringsAsFactors = FALSE
+  )
+})
+
+# 3. View sorted results
+master_model_table_ay <- master_model_table_ay %>% arrange(AIC)
+print(master_model_table_ay)
+
+# 1. Change "ik5m" to whatever model won your AIC comparison
+winning_model <- aykm[["ayk9m"]] 
+
+# 2. Extract model predictions for your specific K variable
+# (Swap 'K_5' with whichever K matched your winning model)
+predictions <- ggpredict(winning_model, terms = "K_9")
+
+# 3. Plot the final relationship
+ggplot() +
+  # 1. Raw data points colored by site
+  geom_jitter(data = ahya, aes(x = K_9, y = ED50, color = site), width = 0.1, alpha = 0.6) +
+  
+  # 2. Model fit prediction line (Added group = 1)
+  geom_line(data = predictions, aes(x = x, y = predicted, group = 1), linewidth = 1.2, color = "black") +
+  
+  # 3. Model uncertainty confidence ribbon (Added group = 1)
+  geom_ribbon(data = predictions, aes(x = x, ymin = conf.low, ymax = conf.high, group = 1), alpha = 0.15) +
+  
+  labs(
+    title = "Predicted Effect on ED50",
+    x = "K=9 Value Assignment",
+    y = "ED50 Response"
+  ) +
+  theme_classic()
+```
+
+
