@@ -4,10 +4,11 @@ library(lme4)
 library(lmerTest) 
 library(multcomp) 
 
+df_with_clusters<-read.csv(here("Data", "df_w_clusters.csv"))
 #flatten data
 df_clean_numeric <- df_with_clusters %>%
   mutate(across(
-    c(Quant, Sigma, Connect, Tau1, Tau2, NPQ, qP, ABQ, qm, nTau1, nTau2, nCon, Fm, Fo), 
+    c(Quant, Sigma, Connect, Tau1, Tau2, NPQ, qP, ABQ, qm, nTau1, nTau2, nCon), 
     ~ map_dbl(.x, ~ mean(as.numeric(unlist(.x)), na.rm = TRUE))
   ))
 #################################################################

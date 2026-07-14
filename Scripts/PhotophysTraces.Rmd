@@ -1,5 +1,5 @@
 ---
-title: "Photophys Traces"
+title: "Photophys Traces Plotting"
 output: html_document
 date: "2026-02-14"
 ---
@@ -28,33 +28,33 @@ sample_metadata <- read.csv(here("Data","AS26_MAPPmetadata_expt.csv"), check.nam
 # cluster object from Dendrogram.Rmd is called cbb
 clusterer <- cbb
 
-# reshape to long
+# Clean labels from original tree to sync names correctly
+dend_ids <- cbb$hclust$labels %>%
+  tolower() %>%
+  str_replace("\\.processed\\.csv$", "") %>%
+  str_replace("\\._?\\d{2,3}r$", "") %>%
+  trimws()
+
 longphoto_shortie <- photophys %>% 
   select(-c(uni, metrix)) %>%
   pivot_longer(
     cols = -c(metric, stage, col),
     names_to = "SampleID",
-    values_to = "Value")
-  # )%>%
-  # dplyr::select(-Fo, -Fm)
-
-longphoto_shortie <- longphoto_shortie %>% 
-  filter(!str_starts(metric, "m")) # Drops any metric starting with 'm'
-
-longphoto_shortie <- longphoto_shortie %>%
+    values_to = "Value"
+  ) %>%
+  filter(!str_starts(metric, "m")) %>% # Drop multiple turnover tracking metrics
   filter(
     !(startsWith(SampleID, "t7") & grepl("icra|ahya", SampleID) & grepl("005", SampleID)),
     !(startsWith(SampleID, "t7") & grepl("aglo|aabr", SampleID) & grepl("002", SampleID))
-  )
-
-longphoto_shortie <- longphoto_shortie %>%
+  ) %>%
   mutate(
     SampleID_clean = SampleID %>%
       tolower() %>%
       str_replace("\\.processed\\.csv$", "") %>%
       str_replace("\\._?\\d{2,3}r$", "") %>%
       trimws()
-  )
+  ) %>%
+  filter(SampleID_clean %in% dend_ids)
 
 #check if duplicates
 longphoto_shortie %>%
@@ -95,6 +95,15 @@ longphoto_shortie <- longphoto_shortie %>%
 #     values_from = Value
 #   ) %>%
 #   distinct(SampleID_clean, .keep_all = TRUE)
+# longphoto_wide <- longphoto_shortie %>%
+#   pivot_wider(
+#     id_cols = c(stage, col, SampleID, SampleID_clean),
+#     names_from = metric,
+#     values_from = Value
+#   ) %>%
+#   dplyr::select(-Fo, -Fm)
+
+# Pivot the clean variables wide
 longphoto_wide <- longphoto_shortie %>%
   pivot_wider(
     id_cols = c(stage, col, SampleID, SampleID_clean),
@@ -102,6 +111,39 @@ longphoto_wide <- longphoto_shortie %>%
     values_from = Value
   ) %>%
   dplyr::select(-Fo, -Fm)
+
+# Extract cluster configurations from the tree strictly for plotting visualization
+cluster_results <- lapply(2:15, function(k) {
+  clusters <- cutree(cbb$hclust, k = k)
+  data.frame(
+    SampleID = names(clusters),
+    Cluster = as.integer(clusters),
+    k = k
+  )
+})
+
+cluster_df_all <- bind_rows(cluster_results) %>%
+  pivot_wider(
+    names_from = k,
+    values_from = Cluster,
+    names_prefix = "K_"
+  ) %>%
+  mutate(
+    SampleID_clean = SampleID %>%
+      tolower() %>%
+      str_replace("\\.processed\\.csv$", "") %>%
+      str_replace("\\._?\\d{2,3}r$", "") %>%
+      trimws()
+  )
+
+# Join assignments
+df_with_clusters <- longphoto_wide %>%
+  left_join(cluster_df_all, by = "SampleID_clean") %>%
+  mutate(
+    site = str_remove(str_extract(SampleID_clean, "^t\\d+"), "t"),
+    species = str_extract(SampleID_clean, "(?<=_)[:alpha:]+"),
+    genotype = str_extract(SampleID_clean, "\\d+$")
+  )
 
 
 #longphoto_wide <- longphoto_wide[,1:18]
@@ -249,18 +291,15 @@ df_with_clusters <- df_with_clusters %>%
   )
 
 
-#save the cluster assignments w sample for ed50 and umap comaprisons
-
-cluster_summary<- df_with_clusters %>%
-  distinct(SampleID_clean, .keep_all = TRUE) %>% 
-  dplyr::select(SampleID_clean, site, species, genotype, K_2:K_15)
-
-cluster_summary%>% 
-  write.csv(file = here("Data", "expt_data_clustered.csv"), row.names = FALSE)
-
-df_with_clusters%>% 
-  write.csv(file = here("Data", "df_w_clusters.csv"), row.names = FALSE)
-
+#save the cluster assignments w sample, not sure i need this section
+# 
+# write.csv(df_with_clusters, file = here("Data", "traces_data_with_clusters.csv"), row.names = FALSE)
+# 
+# cluster_summary_traces <- df_with_clusters %>%
+#   distinct(SampleID_clean, .keep_all = TRUE) %>% 
+#   dplyr::select(SampleID_clean, site, species, genotype, K_2:K_15)
+# 
+# write.csv(cluster_summary_traces, file = here("Data", "traces_cluster_summary.csv"), row.names = FALSE)
 ```
 
 # Plotting traces

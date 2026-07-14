@@ -5,6 +5,8 @@ library(here)
 library(vegan)
 library(pairwiseAdonis)
 
+load(here("Data", "Alls.cor_clean.RData")) # this is the df that goes into the boostrapping
+load(here("Data","cbb_AS26_expt_1000bs_updated.RData")) # this is the boostrapped canberra clustering result. (pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=1000))
 load(here("Data", "permanova_matrix_clean.Rdata")) # unscaled matrix
 load(here("Data", "annotation_col.Rdata"))         # metadata
 

@@ -64,10 +64,10 @@ sample_metadata <- read.csv(here("Data", "AS26_MAPPmetadata_expt.csv"), check.na
 ```{r dendro}
 # --- 1. Load and Filter Raw Data Format ---
 photophys <- read.csv(here("Data", "AS26_PhenotypingData_expt.csv"), row.names = 1)
-photophys <- photophys[1:1456, ]
+#photophys <- photophys[1:1456, ] #when this is excluded there arent duplicates
 
 photophys <- photophys %>% 
-  filter(!str_starts(metric, "m")) %>%
+  #filter(!str_starts(metric, "m")) %>%
   filter(!metric %in% c("Fo", "Fm", "fo", "fm"))
 
 # --- 2. Transpose and Clean Structural Meta Headers ---
@@ -76,7 +76,7 @@ longphoto <- as.data.frame(t(photophys))
 # Pull SampleID out from row names IMMEDIATELY while columns are still uniquely named (V1, V2...)
 longphoto$SampleID <- rownames(longphoto)
 
-# Dynamically drop metadata headers from the rows
+#Dynamically drop metadata headers from the rows
 meta_rows <- which(rownames(longphoto) %in% c("metric", "stage", "col", "uni", "metrix"))
 if(length(meta_rows) > 0) {
   longphoto <- longphoto[-meta_rows, ]
@@ -97,8 +97,13 @@ longphoto <- longphoto %>%
   )
 
 # --- 4. NOW it is safe to assign the clean column headers ---
-# Create unique metric names combining metric + stage + col from our original photophys file
-metric_names <- paste(photophys$metric, photophys$stage, photophys$col, sep=".")
+# Combine uni (mean/min/max) + metric + stage + col + metrix for ultimate clarity
+metric_names <- paste(photophys$uni, photophys$metric, photophys$stage, photophys$col, photophys$metrix, sep=".")
+
+# Strip out any messy row indexes from the uni text if needed (e.g., "mean.1." -> "mean")
+metric_names <- stringr::str_replace(metric_names, "^(mean|min|max|range|slope)\\.\\d+\\.", "\\1.")
+
+# Assign them safely
 colnames(longphoto)[1:length(metric_names)] <- metric_names
 
 # --- 5. Build Clean String Matching Identifiers ---
@@ -152,14 +157,64 @@ save(Alls.cor_clean, file = here("Data", "Alls.cor_clean.RData"))
 
 
 ```{r dendro}
-cbb<-pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=1000)
-save(cbb, file = here("Data", "cbb_AS26_expt_1000bs_updated.RData"))
+# cbb<-pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=1000)
+# save(cbb, file = here("Data", "cbb_AS26_expt_1000bs_updated.RData"))
+#or if you dont need to rerun
+load(file = here("Data", "cbb_AS26_expt_1000bs_updated.RData")) #loads cbb
+```
+
+
+```{r dendro}
+
+# 1. Cut the hclust tree for K = 2 through 10
+cluster_levels <- lapply(2:15, function(k) {
+  groups <- cutree(cbb$hclust, k = k)
+  data.frame(
+    SampleID = names(groups),
+    Cluster = as.integer(groups),
+    k_val = k
+  )
+})
+
+# 2. Pivot the cluster assignments wide so they match your desired columns
+cluster_matrix_wide <- bind_rows(cluster_levels) %>%
+  pivot_wider(
+    names_from = k_val,
+    values_from = Cluster,
+    names_prefix = "K_"
+  )
+
+# 3. Clean the SampleID names and dynamically parse site, species, and genotype
+cluster_summary <- cluster_matrix_wide %>%
+  mutate(
+    SampleID_clean = SampleID %>%
+      tolower() %>%
+      str_replace("\\.processed\\.csv$", "") %>%
+      str_replace("\\._?\\d{2,3}r$", "") %>%
+      trimws(),
+    
+    # Extract 'site' (the number right after the 't')
+    site = str_extract(SampleID_clean, "^t\\d+") %>% str_remove("t"),
+    
+    # Extract 'species' (alphabetic text following the underscore)
+    species = str_extract(SampleID_clean, "(?<=_)[:alpha:]+"),
+    
+    # Extract 'genotype' (the trailing number at the very end)
+    genotype = str_extract(SampleID_clean, "\\d+$")
+  ) %>%
+  # Ensure rows are unique per clean ID
+  distinct(SampleID_clean, .keep_all = TRUE) %>%
+  # Reorder columns to look exactly like your target format
+  dplyr::select(SampleID_clean, site, species, genotype, K_2:K_15)
+
+# 4. Save it cleanly to your Data folder
+write.csv(cluster_summary, file = here("Data", "expt_data_clustered.csv"), row.names = FALSE)
 ```
 
 
 ```{r dendro}
 ##### label color coding ####### 
-load(file = here("Data", "cbb_AS26_expt_1000bs.RData")) #creates cbb
+#load(file = here("Data", "cbb_AS26_expt_1000bs_updated.RData")) #loads cbb
 
 # Create a named color vector (each unique species, i.e. SiteID gets a color)
 #site_ids <- unique(guam_mapplist$mapp_no)

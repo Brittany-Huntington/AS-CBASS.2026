@@ -21,53 +21,77 @@ annot_master <- cluster_summary %>%
   left_join(ed50_data, by = "SampleID_clean")
 write.csv(annot_master, here("Data", "cluster_and_ed50_data.csv"))
 
+#make names right in seqid
+cleaned_names <- seqID$Name %>%
+  str_replace_all("algo", "aglo") %>%
+  # Extract: t + digits + species + ID number, ignoring any internal underscores
+  # Group 1 = time number, Group 2 = 4-letter species, Group 3 = individual number
+  str_replace_all("^t(\\d+)_?([a-z]+)_?(\\d+).*", "t\\1_\\2\\3")
+
+# 2. Assign it back to a new column in your dataframe
+seqID$SampleID_clean <- cleaned_names
+
+# Let's verify how a few turned out:
+head(seqID$SampleID_clean)
+  
+ annot_master <- annot_master %>%
+  # 1. Join the data frames together by your matching column
+  left_join(seqID, by = "SampleID_clean") %>%
+  # 2. Create the seqID column: If a column from seqID (like Name) is NOT NA,
+  #    give it a "D". Otherwise, leave it blank (or NA).
+  mutate(seqID_flag = ifelse(!is.na(Name), "D", NA))
+
+# Check to see how many "D" flags you generated!
+table(annot_master$seqID_flag, useNA = "always")
+  
 # Grab the hclust object directly from your pvclust output
 my_hclust <- cbb$hclust
-
-# Clean the labels directly on the hclust object so it stays the correct data type
-my_hclust$labels <- my_hclust$labels %>%
-  tolower() %>%
-  sub("\\.processed\\.csv$", "", .) %>%
-  sub("\\._?\\d{2,3}r$", "", .) %>%
-  trimws()
-
-# Keep track of this order for matching data frames
-dend_order_labels <- my_hclust$labels
+# --- 1. RESET: Keep the hclust object completely untouched ---
+# Do NOT clean my_hclust$labels. Leave them messy so pheatmap can map them natively.
+my_hclust <- cbb$hclust
+original_labels <- my_hclust$labels
 
 
-# --- 2. Align the physiological matrix data ---
-# Match the rows of your clean numeric matrix to the exact order of the hclust labels
-heatmap_matrix <- Alls.cor_clean[match(cbb$hclust$labels, rownames(Alls.cor_clean)), ] %>%
+# --- 2. Align the physiological matrix data natively ---
+# Match the rows of your matrix to the original messy tree labels
+heatmap_matrix <- Alls.cor_clean[match(original_labels, rownames(Alls.cor_clean)), ] %>%
   as.matrix()
 
-# Transpose and scale (z-score) so traits are rows
+# Transpose, scale, and cap outliers
 heatmap_matrix_scaled <- t(scale(heatmap_matrix))
-# Add this line right after you create heatmap_matrix_scaled!
 heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
 heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
 
-# Assign the cleaned labels as the column names of the matrix
-colnames(heatmap_matrix_scaled) <- dend_order_labels
+# CRITICAL: Keep the column names messy to match the tree!
+colnames(heatmap_matrix_scaled) <- original_labels
 
 
-# --- 3. Align the cluster metadata annotations ---
+# --- 3. Update the Metadata to Match the Messy Labels ---
+# We will create a temporary column in annot_master that mimics the messy file names
+annot_messy <- annot_master %>%
+  distinct(SampleID_clean, .keep_all = TRUE)
 
+# Create a lookup dataframe matching messy names to clean names
+lookup_df <- data.frame(
+  MessyID = original_labels,
+  SampleID_clean = original_labels %>%
+    tolower() %>%
+    sub("\\.processed\\.csv$", "", .) %>%
+    sub("\\._?\\d{2,3}r$", "", .) %>%
+    trimws()
+)
 
-annotation_col <- annot_master %>%
-  filter(SampleID_clean %in% dend_order_labels) %>%
-  slice(match(dend_order_labels, SampleID_clean)) %>%
-  # Select metadata, your cluster level, AND the continuous ED50 column
-  dplyr::select(SampleID_clean, species, K_10:K_15, ED50)
+# Join the lookup back to your metadata
+annotation_col <- lookup_df %>%
+  left_join(annot_messy, by = "SampleID_clean")
 
+# Establish the messy names as the row names so pheatmap can map them
+rownames(annotation_col) <- annotation_col$MessyID
 
-# Establish row names for pheatmap and strip the raw ID column
-annotation_col <- as.data.frame(annotation_col)
-rownames(annotation_col) <- annotation_col$SampleID_clean
-annotation_col$SampleID_clean <- NULL
-
-# Convert categorical features to factors, keeping ED50 numeric
+# Select your tracks and convert to factors
 annotation_col <- annotation_col %>% 
-  mutate(across(c(species, K_10:K_15), as.factor))
+  dplyr::select(species, K_3, K_4,K_11, ED50, seqID_flag) %>%
+  mutate(across(c(species, K_3, K_4,K_11), as.factor))
 
 write.csv(annotation_col, file = here( "Data", "annotation_col.csv"))
 
@@ -124,7 +148,7 @@ my_breaks <- seq(-3, 3, length.out = 101)
 
 #plot heatmap
 jpeg(
-  file = here("Plots", "Sorted_Grouped_Physiological_Heatmap_ks.jpg"), 
+  file = here("Plots", "Sorted_Grouped_Physiological_Heatmap_k3411.jpg"), 
   width = 12, 
   height = 10, 
   units = "in", 
@@ -311,7 +335,7 @@ annotation_col <- cluster_summary %>%
   mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
   filter(SampleID_clean %in% dend_order_labels) %>%
   slice(match(dend_order_labels, SampleID_clean)) %>%
-  dplyr::select(species, K_2:K_15) %>% # Toggle your K's here
+  dplyr::select(species, K_10) %>% # Toggle your K's here
   mutate(across(everything(), as.factor)) %>%
   as.data.frame()
 
@@ -356,21 +380,21 @@ pheatmap(
 ```{r}
 #plot ED50 by cluster assignment, here K=12
 #1. set order for easy interpretation 
-custom_order <- c("1", "2", "3", "4", "10", "11", "5", "6", "7", "8", "9", "12")
+custom_order <- c("1", "2", "3", "7", "8", "9", "10", "4", "11", "5", "6")
 
 # --- 2. Clean Data & Reorder Factor Levels ---
 df_sorted <- df_modeling %>%
   filter(ED50 < 45) %>% 
   mutate(
     # Force K_12 to follow your specific sequence on the x-axis
-    K_12_sorted = factor(as.character(K_12), levels = custom_order),
+    K_11_sorted = factor(as.character(K_11), levels = custom_order),
     species_color = toupper(trimws(species))
   ) %>%
   # Drop any rows that don't match your custom level list (if any exist)
-  filter(!is.na(K_12_sorted))
+  filter(!is.na(K_11_sorted))
 
 # --- 3. Build the Single Unfaceted Plot ---
-plot_sorted_k12 <- ggplot(df_sorted, aes(x = K_12_sorted, y = ED50)) +
+plot_sorted_k11 <- ggplot(df_sorted, aes(x = K_11_sorted, y = ED50)) +
   # One clean boxplot per cluster step along your custom x-axis order
   geom_boxplot(alpha = 0.3, outlier.shape = NA, color = "black", fill = "grey98") +
   
@@ -385,7 +409,7 @@ plot_sorted_k12 <- ggplot(df_sorted, aes(x = K_12_sorted, y = ED50)) +
   ) +
   labs(
    # title = "ED50 Phenotypes Ordered by Custom Cluster Sequence",
-    x = "K_12 Cluster Assignment",
+    x = "K_11 Cluster Assignment",
     y = expression(ED[50]*" Score"),
     color = "Species"
   )
