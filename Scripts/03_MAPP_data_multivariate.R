@@ -269,7 +269,7 @@ pw99_SP <- pairwise.adonis2(matrix_99_scaled ~ Species, data = meta_99, method =
 pw99_SP 
 
 pw90_SP <- pairwise.adonis2(matrix_90_scaled ~ Species, data = meta_99, method = "euclidean", p.adjust = "BH")
-pw90_SP #no species differences
+pw90_SP 
 
 #explore which specific taxa are differing among OBS_YEAR
 sim <- simper(matrix_99_scaled, group = meta_99$Species, permutations = 999)
@@ -326,25 +326,44 @@ nmds_fit <- metaMDS(matrix_99_scaled,
                     trymax = 100, 
                     autotransform = FALSE)
 
-# 2. CRITICAL: Check the stress value in your console
-cat("nMDS Stress Value:", nmds_fit$stress, "\n")
+#check stress
+cat("nMDS Stress Value:", nmds_fit$stress, "\n") #decent value of <0.15
 
 # 3. Extract the coordinates for plotting
 nmds_scores <- as.data.frame(scores(nmds_fit, display = "sites")) %>%
   bind_cols(pp_99_species %>% select(Species, genotype))
 
-# 4. Plot the nMDS
+#plot centroids
+centroids <- nmds_scores %>%
+  group_by(Species) %>%
+  summarize(
+    NMDS1 = mean(NMDS1),
+    NMDS2 = mean(NMDS2)
+  )
+
+
+#Plot nMDS with  50% confience ellipses overlaid on raw data
 ggplot(nmds_scores, aes(x = NMDS1, y = NMDS2, color = Species)) +
   geom_point(size = 3, alpha = 0.8) +
-  stat_ellipse(aes(fill = Species), geom = "polygon", alpha = 0.1, level = 0.95) +
+  stat_ellipse(aes(fill = Species), geom = "polygon", alpha = 0.1, level = 0.50) +
   labs(
     title = "nMDS Ordination of Physiological Profiles (Euclidean)",
     subtitle = paste0("Stress = ", round(nmds_fit$stress, 3))
   ) +
   theme_minimal()
 
-
-library(vegan)
-library(dplyr)
-library(ggplot2)
+#Plot nMDS with  50% confidence ellipses overlaid on centroids
+ggplot(nmds_scores,
+       aes(NMDS1, NMDS2, color = Species)) +
+  geom_point(alpha = 0.4) +
+  stat_ellipse(level = 0.5) +
+  geom_point(data = centroids,
+             size = 6,
+             shape = 4,
+             stroke = 2)+
+  labs(
+    title = "nMDS Ordination of Physiological Profiles (Euclidean)",
+    subtitle = paste0("Stress = ", round(nmds_fit$stress, 3))
+  ) +
+  theme_minimal()
 
