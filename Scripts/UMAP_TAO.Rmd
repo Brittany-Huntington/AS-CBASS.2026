@@ -351,11 +351,127 @@ ggplot(umap_plotting_data, aes(x = UMAP1, y = UMAP2)) +
   )
 
 ```
+```{r}
+library(dplyr)
+library(stringr)
+library(igraph)
+
+# --- 1. Load ED50 metadata and safely map Sample IDs ---
+ed <- read.csv(file = here("Data", "cluster_and_ed50_data.csv"))
+ed=read.csv(file = here("Data", "AS26_ED50_CI_BIC_TAO.csv")) # this is weird. one ed50 is in the 40s??
+allphoto. <- photophys_scaled.
+allphoto.$SampleID <- rownames(photophys_scaled.) 
+
+allphoto.ed <- allphoto. %>% 
+  mutate(
+    # Break out metadata fields for downstream plotting use
+    Site      = as.numeric(str_extract(SampleID, "(?<=^t)\\d+")),
+    Colony    = str_extract(SampleID, "(?<=_)[a-z0-9]+$"),
+    Species   = str_to_upper(str_extract(Colony, "^[a-z]+")),
+    ColonyNum = as.numeric(str_extract(Colony, "\\d+$")),
+    
+    Genotype  = paste0(Species,
+                       "_s", formatC(Site, flag = "0", width = 2),
+                       "_c", formatC(ColonyNum, flag = "0", width = 2))
+  ) %>% 
+  # FIXED: Join directly using the matching t1_aabr1 string format!
+  left_join(ed, by = c("SampleID" = "PhPh_Genotype")) %>% 
+  filter(ED50 < 40, ED50ci95 <= 2)
+
+# --- 2. Colinearity Thinning Optimization ---
+COLLINEAR_THRESHOLD <- 0.6
+
+ppParam <- colnames(photophys_scaled.)
+
+cor_matrix <- cor(photophys_scaled.[, ppParam], use = "pairwise.complete.obs")
+cor_tri <- which(lower.tri(cor_matrix), arr.ind = TRUE)
+
+cor_df <- data.frame(
+  Sensor1     = rownames(cor_matrix)[cor_tri[, 1]],
+  Sensor2     = colnames(cor_matrix)[cor_tri[, 2]],
+  Correlation = cor_matrix[cor_tri]
+)
+
+diag(cor_matrix) <- 0
+adj_matrix <- abs(cor_matrix) > COLLINEAR_THRESHOLD
+adj_matrix[is.na(adj_matrix)] <- FALSE 
+
+g <- graph_from_adjacency_matrix(adj_matrix, mode = "upper", diag = FALSE)
+clusters <- components(g)$membership
+clusters_vector <- components(g)$membership
+
+# Safely subset the parameters using the named membership vector
+ppParam_thinned <- ppParam[!duplicated(clusters_vector)]
+
+# Report thinning reduction summary
+cat("Reduced from", length(ppParam), "to", length(ppParam_thinned), "sensors.\n")
+cat("Original count:", length(ppParam), "\n")
+cat("Thinned count: ", length(ppParam_thinned), "\n")
+
+#Claude's Version: Sonnet 3.6
+library(stabs)
+library(glmnet)
+
+# Prepare model matrix (no intercept, glmnet handles it)
+X <- as.matrix(allphoto.[, ppParam_thinned])
+y <- allphoto.[["ED50"]]
+
+# Stability selection with LASSO base learner
+#WITHOUT COLINEARITY CONTROL ppParam #3907
+#cutoff = .75 and PFER = 1 returned no selected params
+#cutoff = .6 and PFER = 5 returned no selected params
+#WITH COLINEARITY CONTROL ppParam_thinned #184 cor threshold 0.7
+#cutoff = .6 and PFER = 5 stably returned 4 selected param:  "Connect.20.2"       "Connect.19.3"       "range.4.rSigma.L2"  "L12CompL32.qTau1.4"
+#cutoff = .75 and PFER = 1 returned no selected params
+
+
+stab_result <- stabsel(
+  x = X,
+  y = y,
+  fitfun = glmnet.lasso,
+  cutoff = 0.6,      # selection probability threshold
+  PFER = 5,# per-family error rate bound
+  B=1000
+)
+
+# View results
+print(stab_result)
+plot(stab_result)
+
+# Extract selected variables
+selected_vars <- names(stab_result$selected)
+cat("Selected variables:\n")
+print(selected_vars)
+
+#highlight other variables:
+collinear_groups=setNames(vector("list", length(selected_vars)), selected_vars)
+for(i in 1:length(selected_vars)){
+  target=selected_vars[i]
+  target_correlations <- cor_matrix[, target]
+  
+  # 2. Filter for those above your threshold (e.g., 0.6)
+  # We exclude the target itself (where cor == 1)
+  col_i=which(abs(target_correlations) > COLLINEAR_THRESHOLD)
+  if(length(col_i)==0){collinear_group=NA}else{
+    collinear_group=names(target_correlations)[col_i]
+  }
+  collinear_groups[[i]]=collinear_group
+}
+print(selected_vars)
+print(collinear_groups)
+
+ppParam_selected=selected_vars
+
+ggplot(allphoto.ed,aes(x=.data[[ppParam_selected[1]]],
+                    y=.data[[ppParam_selected[2]]],
+                    shape=Species,color=ED50))+scale_color_viridis_c()+
+  geom_point()
+```
 
 #Incorporate ED50, and ID correlates
 ```{r}
 #ed=read.csv(file = here("Data", "AS26_ED50_CI_BIC_TAO.csv")) # this is weird. one ed50 is in the 40s??
-
+ed=read.csv(file = here("Data", "cluster_and_ed50_data.csv"))
 allphoto.ed=allphoto. %>% mutate(
   Site = as.numeric(str_extract(SampleID, "(?<=t)\\d+(?=_)")), 
   Colony =(str_extract(SampleID, "(?<=_).+?(?=\\.)")),
