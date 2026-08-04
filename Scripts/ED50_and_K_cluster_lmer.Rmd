@@ -11,6 +11,7 @@ library(broom.mixed)
 library(tidyverse)
 library(multcomp)
 library(multcompView)
+library(purrr)
 
 annot_master<-read.csv(here("Data", "cluster_and_ed50_data.csv")) #from phenotype_heatmap script
 df_modeling <- annot_master %>%
@@ -18,6 +19,14 @@ df_modeling <- annot_master %>%
   filter(!is.na(ED50), !is.na(site))
 
 k_cols <- paste0("K_", 2:15)
+
+## for plotting: define shapes and colors
+
+# 15=Square, 16=Circle, 17=Triangle, 18=Diamond, 
+# 21=Bordered Circle, 22=Bordered Square, 23=Bordered Diamond, 24=Bordered Triangle
+custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
+custom_colors<-scale_fill_manual(values = c("darkolivegreen", "darkorange4", "salmon"))+
+custom_colors<-scale_color_manual(values = c("darkolivegreen", "darkorange4", "salmon"))
 ```
 
 ```{r}
@@ -85,9 +94,6 @@ model_comparison <- compare_performance(
 print(model_comparison%>% arrange(AIC))
 
 #asked pal to help with r2 wasnt showing up
-library(performance)
-library(dplyr)
-library(purrr)
 
 # 1. Create a named list of all your model objects
 all_models <- list(
@@ -131,11 +137,12 @@ master_model_table <- imap_dfr(all_models, function(model_obj, model_name) {
 print(master_model_table %>% arrange(AIC))
 
 
-write.csv(master_model_table, here("Data", "master_model_table.csv"))
+#write.csv(master_model_table, here("Data", "master_model_table.csv"))
 
 top_models <- list(
   "K3_plus_Spp"  = k3ms,
   "K4_plus_Spp"  = k4ms,
+  "K_3_*_Spp"= k3msi,
   "Just_Spp" = spp_m
 )
 
@@ -148,7 +155,7 @@ anova_table <- lapply(names(top_models), function(model_name) {
     mutate(Model = model_name)
 }) %>%
   bind_rows() %>%
-  select(Model, term, everything()) # Keeps it scannable
+  dplyr::select(Model, term, everything()) # Keeps it scannable
 
 print(anova_table)
 
@@ -184,20 +191,309 @@ emmeans_table <- imap_dfr(top_models, function(m, model_name) {
 
 print(emmeans_table)
 ```
-
-
 ```{r}
-# just best
+#plot tom's "efficiency frontier"
+library(ggrepel) # For non-overlapping labels
+
+# 1. Prepare data (using Conditional_R2 as the primary metric)
+# Change 'Conditional_R2' to 'Marginal_R2' if preferred
+plot_data <- master_model_table %>%
+  rename(R2_target = Conditional_R2)
+
+# 2. Compute the Efficiency (Pareto) Frontier
+# Sort by BIC ascending, then calculate cumulative max R2
+frontier_data <- plot_data %>%
+  arrange(BIC, desc(R2_target)) %>%
+  mutate(cum_max_R2 = cummax(R2_target)) %>%
+  filter(R2_target == cum_max_R2) %>%
+  distinct(R2_target, .keep_all = TRUE)
+
+# 3. Tag models in main table as Efficient vs. Suboptimal
+plot_data <- plot_data %>%
+  mutate(is_frontier = Model_Name %in% frontier_data$Model_Name)
+
+# 4. Generate Efficiency Frontier Plot
+ggplot(plot_data, aes(x = BIC, y = R2_target)) +
+  # Draw step line for efficiency frontier
+  # geom_step(
+  #   data = frontier_data,
+  #   aes(x = BIC, y = R2_target),
+  #   direction = "hv",
+  #   color = "#1f77b4",
+  #   linewidth = 1,
+  #   linetype = "dashed"
+  # ) +
+  # Points for suboptimal models
+  geom_point(
+    data = filter(plot_data, !is_frontier),
+    color = "gray60",
+    size = 2.5,
+    alpha = 0.7
+  ) +
+  # Highlight points on the efficiency frontier
+  geom_point(
+    data = filter(plot_data, is_frontier),
+    color = "#1f77b4",
+    size = 4
+  ) +
+  # Model Labels (non-overlapping)
+  geom_text_repel(
+    aes(label = Model_Name, color = is_frontier),
+    size = 3.5,
+    fontface = ifelse(plot_data$is_frontier, "bold", "plain"),
+    max.overlaps = 20,
+    box.padding = 0.35
+  ) +
+  scale_color_manual(values = c("TRUE" = "#1f77b4", "FALSE" = "gray30")) +
+  theme_minimal(base_size = 12) +
+  labs(
+    title = "Model Efficiency Frontier (BIC vs. Conditional R²)",
+    #subtitle = "Dashed line marks Pareto-optimal models (higher R² for a given BIC penalty)",
+    x = "BIC ",
+    y = expression("Conditional " * R^2 * "")
+  ) +
+  theme(
+    legend.position = "none",
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+```
+```{r}
+#Single model:  ED50 ~ K_3 + (1 | site)
 par(mfrow = c(1, 2))
-plot(resid(k3ms) ~ fitted(k3ms), main = "Residuals vs Fitted (K3ms)", xlab = "Fitted", ylab = "Residuals")
-qqnorm(resid(k3ms), main = "Normal Q-Q Plot (K3ms)")
+plot(resid(k3ms) ~ fitted(k3m), main = "Residuals vs Fitted (k3m)", xlab = "Fitted", ylab = "Residuals")
+qqnorm(resid(k3m), main = "Normal Q-Q Plot (k3ms)")
+qqline(resid(k3m), col = "red")
+par(mfrow = c(1, 1)) 
+
+#Test overall significance of single model
+anova(k3m)  #(p=0.01815)
+
+#  Compute EMMs & Significance Letters (Tukey adjusted) for single spp model
+emm_k3 <- emmeans(k3m, ~ K_3)
+performance(k3m)
+anova(k3m)
+
+#tukey adjustment
+cld_k3 <- cld(emm_k3, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    K_3 = as.factor(K_3),
+    .group = trimws(.group) # Cleans up any leading whitespace in letters
+  )
+
+#no adjustment
+cld_k3_lsd <- cld(emm_k3, adjust = "none", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    K_3 = as.factor(K_3),
+    .group = trimws(.group)
+  )
+
+
+# Plot: ED50 by K_3 cluster with raw points + EMMs + Significance Letters
+plot_k3 <- ggplot() +
+  # Layer 1: Jittered raw data points (colored by species, shaped by site)
+  geom_jitter(
+    data = df_modeling,
+    aes(x = as.factor(K_3), y = ED50, color = species, shape = as.factor(site)),
+    width = 0.18,
+    alpha = 0.65,
+    size = 2.5
+  ) +
+  # Layer 2: Model summary (EMM black dots & 95% Confidence Intervals)
+  geom_errorbar(
+    data = cld_k3_lsd,
+    aes(x = K_3, ymin = lower.CL, ymax = upper.CL),
+    width = 0.12,
+    linewidth = 0.9,
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_k3_lsd,
+    aes(x = K_3, y = emmean),
+    size = 4,
+    color = "black"
+  ) +
+  # Layer 3: Compact Letter Display (Significance letters placed above upper CI)
+  geom_text(
+    data = cld_k3_lsd,
+    aes(x = K_3, y = upper.CL + 0.12, label = .group),
+    fontface = "bold",
+    size = 5.5,
+    color = "black"
+  ) +
+  # Formatting & Styling
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold"),
+    plot.title  = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+   # title = "Thermal Performance across Photophysiological Clusters",
+   # subtitle = "Raw data colored by species; black points show unadjusted K_3 EMMs (± 95% CI)",
+    x = "Photophysiological Cluster (K = 3)",
+    y = expression(ED[50]~"("*degree*C*")"),
+    color = "Species",
+    shape = "Site"
+  )+
+  scale_shape_manual(values = custom_shapes) 
+
+print(plot_k3)
+```
+```{r}
+#BEST MODEL k3ms - yet confounding. 
+# --- 1. Model Checks & ANOVA ---
+par(mfrow = c(1, 2))
+plot(resid(k3ms) ~ fitted(k3ms), main = "Residuals vs Fitted (k3ms)", xlab = "Fitted", ylab = "Residuals")
+qqnorm(resid(k3ms), main = "Normal Q-Q Plot (k3ms)")
 qqline(resid(k3ms), col = "red")
 par(mfrow = c(1, 1)) 
 
-anova(k3ms)
-#this is  mathematically removing the effect of their physiological cluster- does genetic lineage matter independent of current physiological state.
-k3ms_raw_emm <- emmeans(k3ms, ~ species | K_3)
+#Test overall significance of single model
+anova(k3ms)  #both are sig, p < 0.001
 
+# --- 2. Extract EMMs &  Letter Display ---
+k3ms_cluster_emm <- emmeans(k3ms, specs = ~ K_3) 
+
+# Convert EMM to dataframe and compute CLD letters
+cld_clusters <- cld(k3ms_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    K_3 = as.factor(K_3),
+    .group = trimws(.group)
+  )
+
+# --- 3. Generate Efficiency/Performance Plot with Raw Data ---
+plot_k3ms <- ggplot() +
+  # Layer A: Raw data jittered points (colored by species, shape by site)
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = as.factor(K_3), y = ED50, color = species, shape = site),
+    width = 0.18, 
+    alpha = 0.55, 
+    size = 2.5
+  ) +
+  # Layer B: Model Estimated Marginal Means (Black points + Error bars)
+  geom_errorbar(
+    data = cld_clusters,
+    aes(x = K_3, ymin = lower.CL, ymax = upper.CL),
+    width = 0.12, 
+    linewidth = 0.9, 
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_clusters,
+    aes(x = K_3, y = emmean),
+    size = 4, 
+    color = "black"
+  ) +
+  # Layer C: Statistical significance letters (CLD)
+  geom_text(
+    data = cld_clusters,
+    aes(x = K_3, y = upper.CL + 0.15, label = .group),
+    fontface = "bold", 
+    size = 5.5,
+    color = "black"
+  ) +
+  # Styling & Labels
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold"),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+    #title = "Photophysiological Cluster Thermal Performance",
+    #subtitle = "Controlling for species identity; species:K_3 interaction non-significant (p = 0.36)",
+    x = "Photophysiological Cluster (K = 3)",
+    y = expression(Estimated~Marginal~Mean~ED50~"("*degree*C*")"),
+    color = "Species",
+    shape = "Site"
+  )+
+  scale_shape_manual(values = custom_shapes) 
+
+print(plot_k3ms)
+
+```
+
+```{r}
+#now plot by species on x axis 
+# --- 1. Compute EMMs & Letters for Species ---
+k3ms_species_emm <- emmeans(k3ms, specs = ~ species)
+
+cld_species <- cld(k3ms_species_emm, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    species = as.factor(species),
+    .group  = trimws(.group)
+  )
+
+# --- 2. Plot Main Effect of Species ---
+# Replace 'my_data' with your actual model dataset
+plot_species_emm <- ggplot() +
+  # Layer A: Raw data jittered (colored by K_3 cluster, shaped by site)
+  geom_jitter(
+    data = df_modeling,
+    aes(x = species, y = ED50, color = as.factor(K_3), shape = site),
+    width = 0.18,
+    alpha = 0.55,
+    size = 2.5
+  ) +
+  # Layer B: Estimated Marginal Means (Black points + 95% CI bars)
+  geom_errorbar(
+    data = cld_species,
+    aes(x = species, ymin = lower.CL, ymax = upper.CL),
+    width = 0.12,
+    linewidth = 0.9,
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_species,
+    aes(x = species, y = emmean),
+    size = 4,
+    color = "black"
+  ) +
+  # Layer C: Tukey Significance Letters
+  geom_text(
+    data = cld_species,
+    aes(x = species, y = upper.CL + 0.15, label = .group),
+    fontface = "bold",
+    size = 5.5,
+    color = "black"
+  ) +
+  # Styling & Labels
+  scale_x_discrete(labels = c(
+    "aabr" = "A. abrotanoides", 
+    "aglo" = "A. globiceps", 
+    "ahya" = "A. hyacinthus", 
+    "icra" = "I. crateriformis"
+  )) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "italic"),
+    plot.title  = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+    title = "Species Baselines in Thermal Performance",
+    subtitle = "Controlling for photophysiological cluster state (K_3)",
+    x = "Species Identity",
+    y = expression(Estimated~Marginal~Mean~ED[50]~"("*degree*C*")"),
+    color = "Cluster (K_3)",
+    shape = "Site"
+  )+
+  scale_shape_manual(values = custom_shapes) + 
+  scale_fill_manual(values = c("darkolivegreen", "darkorange4", "salmon"))+
+  scale_color_manual(values = c("darkolivegreen", "darkorange4", "salmon"))
+
+print(plot_species_emm)
+```
+
+
+```{r}
+#plot by species (THINK I SHOULD DELTE BC CONFOUNDING)
 # 2. Convert to a clean dataframe, dropping rows that have no data (the NAs)
 cld_spp <- cld(k3ms_raw_emm, adjust = "tukey", Letters = letters) %>%
   filter(!is.na(emmean)) %>%
@@ -275,33 +571,7 @@ plot_jittered <- ggplot() +
   )
 
 print(plot_jittered)
-#this is  mathematically removing the effect of host - does cluster matter independent of host.
-k3ms_cluster_emm <- emmeans(k3ms, specs = ~ K_3) 
-k3ms_clust <- pairs(k3ms_cluster_emm, adjust = "tukey")
-print(k3ms_clust) #yes, 3 is different from each
-cld_clusters <- cld(k3ms_clust, adjust = "tukey", Letters = letters)
-print(cld_clusters)
 
-# 1. Correct the CLD call to use the EMM object
-cld_clusters <- cld(k3ms_cluster_emm, adjust = "tukey", Letters = letters) %>%
-  mutate(.group = trimws(.group))
-
-# 2. Generate Plot
-plot_cluster_emm <- ggplot(cld_clusters, aes(x = as.factor(K_3), y = emmean)) +
-  geom_point(size = 4, color = "grey20") +
-  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.15, linewidth = 1, color = "grey20") +
-  geom_text(aes(label = .group, y = upper.CL + 0.08), fontface = "bold", size = 5) +
-  
-  theme_classic(base_size = 14) +
-  theme(axis.text.x = element_text(face = "bold")) +
-  labs(
-    title = "Physiological Cluster Thermal Performance",
-    subtitle = "Controlled for Species Identity (Cluster 3 boosts tolerance)",
-    x = "Photophysiological Cluster (K=3)",
-    y = expression(Estimated~Marginal~Mean~ED[50]~"("*degree*C*")")
-  )
-
-print(plot_cluster_emm)
 
 # This groups the data by cluster first, then compares species inside them
 k3ms_joint_emm <- emmeans(k3ms, specs = ~ species | K_3)
@@ -341,46 +611,10 @@ plot_joint_emm <- ggplot(cld_joint_df, aes(x = species, y = emmean, color = spec
 
 print(plot_joint_emm)
 ```
-```{r}
-library(dplyr)
-library(stringr)
 
-# now want to test 
-# --- 1. Fit the safe model ---
-k3ms_joint <- lmer(ED50 ~ Spp_Cluster + (1 | site), 
-                   data = df_modeling, 
-                   REML = TRUE)
-
-# --- 2. Calculate means and extract pairs ---
-joint_emm <- emmeans(k3ms_joint, specs = ~ Spp_Cluster)
-all_pairs <- as.data.frame(pairs(joint_emm, adjust = "tukey"))
-
-# --- 4. Look at shifts within species ---
-# This filters the giant list to ONLY show comparisons within the same species
-within_species_shifts <- all_pairs %>%
-  filter(
-    (str_detect(contrast, "aabr") & !str_detect(contrast, "aglo|ahya|icra")) |
-    (str_detect(contrast, "aglo") & !str_detect(contrast, "aabr|ahya|icra")) |
-    (str_detect(contrast, "icra") & !str_detect(contrast, "aabr|ahya|aglo"))
-  )
-
-print(within_species_shifts)
-```
  
 ```{r}
-df_modeling$Cluster <- sub(".*_", "", df_modeling$Spp_Cluster)
-df_modeling$Cluster <- factor(df_modeling$Cluster)
-
-m <- lmer(
-  ED50 ~ species + Cluster + (1 | site),
-  data = df_modeling
-)
-
-summary(m)
-```
-```{r}
-library(ggplot2)
-library(dplyr)
+#Plot: Facet by species, look at clusters in groups.
 
 # --- 1. Filter out missing values and clean up factor levels for K=3 ---
 df_plot_k3 <- df_modeling %>%
@@ -435,8 +669,7 @@ plot_k3_shifts <- ggplot(df_plot_k3, aes(x = as.factor(K_3), y = ED50, fill = si
 print(plot_k3_shifts)
 
 # Save the plot with a broad layout to accommodate the side-by-side species view
-ggsave(here("Plots", "ED50_Shifts_K3_Faceted.png"), 
-       plot = plot_k3_shifts, width = 11, height = 6, dpi = 300)
+#ggsave(here("Plots", "ED50_Shifts_K3_Faceted.png"),  plot = plot_k3_shifts, width = 11, height = 6, dpi = 300)
 ```
 
 ```{r}
@@ -472,6 +705,7 @@ within_species_shifts_4 <- all_pairs_4 %>%
 
 print(within_species_shifts_4)
 ```
+
 ```{r}
 
 #this is  mathematically removing the effect of their physiological cluster- does genetic lineage matter independent of current physiological state.
