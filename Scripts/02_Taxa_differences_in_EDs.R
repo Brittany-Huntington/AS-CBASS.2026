@@ -19,6 +19,20 @@ library(here)
 library(multcomp)
 
 rm(list = ls())
+custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
+species_colors <- c(
+  "AABR" = "#046E8F", # Muted Crimson/Rose Red (#D44D5CFF)
+  "AGLO" = "#83BA75FF", # Light Sage Teal (#9DD9D2FF)
+  "AHYA" = "#D44D5C", # Deep Ocean Blue (#046E8FFF)
+  "ICRA" = "#462255"  # Bright Amber/Orange (#FF8811FF) -- (or "#462255" for Deep Purple)
+)
+
+species_labels <- c(
+  "AGLO" = "A. globiceps",
+  "AABR" = "A. abrotanoides",
+  "AHYA" = "A. hyacinthus",
+  "ICRA" = "I. crateriformis"
+)
 
 #####Load and Prep Data-----------------------------
 
@@ -98,8 +112,9 @@ anova_table <- lapply(names(models), function(ed) {
     mutate(ED_level = ed)
   an_df
 }) %>%
-  bind_rows() %>%
-  select(-term)
+  bind_rows() 
+# %>%
+#   select(-term)
 
 anova_table
 
@@ -153,7 +168,10 @@ ED_summary <- ED_long %>%
     n = n(),
     Mean = mean(ED_value),
     SE = sd(ED_value) / sqrt(n()),
-    .groups = "drop")
+    CI_lower = Mean - qt(0.975, df = n - 1) * SE,
+    CI_upper = Mean + qt(0.975, df = n - 1) * SE,
+    .groups = "drop"
+  )
 
 site_summary <- ED_long %>%
   group_by(Site, Species, ED_level) %>%
@@ -169,14 +187,18 @@ g1 <- ggplot(ED_long, aes(x = Species, y = ED_value, fill = Species)) +
   labs(
     x = "Species",
     y = expression(paste("Temperature (", degree, "C)")),
-    title = "CBASS-Derived Thermal Thresholds",
-    subtitle = "American Samoa"
+   # title = "CBASS-Derived Thermal Thresholds",
+   # subtitle = "American Samoa"
   ) +
   theme(
     strip.text = element_text(face = "bold"),
     axis.text.x = element_text(angle = 45, hjust = 1)
   ) +
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  scale_color_manual(values = species_colors) +
+  scale_fill_manual(values = species_colors)+ 
+  scale_x_discrete(labels = species_labels) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
 
 g1
 
@@ -188,11 +210,21 @@ geom_jitter(aes(color = Species),width = 0.15, alpha = 0.4, size = 1, show.legen
   # geom_errorbar(data = ED_summary,
   #               aes(x = Species,
   #                   ymin = Mean - SE,
-  #                   ymax = Mean + SE,
-  #                   color = Species),
+  #                   ymax = Mean + SE),
   #               width = 0.2,
   #               size = 0.8,
   #               inherit.aes = FALSE) +
+  geom_errorbar(
+    data = ED_summary,
+    aes(
+      x = Species,
+      ymin = CI_lower,
+      ymax = CI_upper
+    ),
+    width = 0.2,
+    linewidth = 0.8,
+    inherit.aes = FALSE
+  ) +
   geom_point(data = ED_summary,
              aes(x = Species, y = Mean, fill = Species),
              shape = 21,
@@ -213,13 +245,17 @@ geom_jitter(aes(color = Species),width = 0.15, alpha = 0.4, size = 1, show.legen
     y = expression(paste("Temperature (", degree, "C)")),
     #title = "CBASS-Derived Thermal Thresholds",
     #subtitle = "American Samoa"
-  )
+  )+
+  scale_color_manual(values = species_colors) +
+  scale_fill_manual(values = species_colors)+ 
+  scale_x_discrete(labels = species_labels) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, face = "italic"))
 
 g2
 
 
 #ggsave(filename = here ("Plots", "All_sites_boxplot.pdf"), plot = g1,  width = 16, height = 9, device = "pdf")
-ggsave(filename = here ("Plots", "All_sites_points&means.pdf"), plot = g2,  width = 16, height = 9, device = "pdf")
+#ggsave(filename = here ("Plots", "All_sites_points&means.pdf"), plot = g2,  width = 16, height = 9, device = "pdf")
 
 
 #ED50 only mean +/- SE plot ------
@@ -241,14 +277,24 @@ g3 <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
              size = 7,
              inherit.aes = FALSE) +
   
-  geom_errorbar(data = ED50_summary,
-                aes(x = Species,
-                    ymin = Mean - SE,
-                    ymax = Mean + SE,
-                    color = Species),
-                width = 0.2,
-                size = 1,
-                inherit.aes = FALSE) +
+  # geom_errorbar(data = ED50_summary,
+  #               aes(x = Species,
+  #                   ymin = Mean - SE,
+  #                   ymax = Mean + SE),
+  #               width = 0.2,
+  #               size = 1,
+  #               inherit.aes = FALSE) +
+  geom_errorbar(
+    data = ED50_summary,
+    aes(
+      x = Species,
+      ymin = CI_lower,
+      ymax = CI_upper
+    ),
+    width = 0.2,
+    linewidth = 0.8,
+    inherit.aes = FALSE
+  ) +
   geom_text(data = ED50_summary,
             aes(x = Species,
                 y = Mean + SE + 0.1,
@@ -267,13 +313,18 @@ g3 <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
   labs(
     x = "Species",
     y = expression(paste("ED50 (", degree, "C)")),
-    title = "CBASS-Derived Thermal Thresholds",
-  )
+   # title = "CBASS-Derived Thermal Thresholds",
+  )+
+  scale_color_manual(values = species_colors) +
+  scale_fill_manual(values = species_colors)+ 
+  scale_x_discrete(labels = species_labels) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, face = "italic"))
+
 
 g3
 
 
-ggsave(filename = here ("Plots", "ED50_post-hocs.pdf"), plot = g3,  width = 16, height = 9, device = "pdf")
+#ggsave(filename = here ("Plots", "ED50_post-hocs.pdf"), plot = g3,  width = 16, height = 9, device = "pdf")
 
 
 #Q1B.  How important are site level differences to our ESA taxa?---------------------------
