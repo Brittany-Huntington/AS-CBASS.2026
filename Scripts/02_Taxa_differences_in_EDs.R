@@ -21,10 +21,10 @@ library(multcomp)
 rm(list = ls())
 custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
 species_colors <- c(
-  "AABR" = "#046E8F", # Muted Crimson/Rose Red (#D44D5CFF)
-  "AGLO" = "#83BA75FF", # Light Sage Teal (#9DD9D2FF)
-  "AHYA" = "#D44D5C", # Deep Ocean Blue (#046E8FFF)
-  "ICRA" = "#462255"  # Bright Amber/Orange (#FF8811FF) -- (or "#462255" for Deep Purple)
+  "AABR" = "#046E8F", 
+  "AGLO" = "#83BA75FF", 
+  "AHYA" = "#D44D5C",
+  "ICRA" = "#462255"  
 )
 
 species_labels <- c(
@@ -147,8 +147,11 @@ emmeans_table
 #check residual diagnostics for ED50 only
 m_ED50 <- lmer(ED_value ~ Species + (1|Site), data = ED50_df)
 summary(m_ED50)
+performance(m_ED50)
 anova(m_ED50)
 species_emms <- emmeans(m_ED50, ~ Species)
+species_pairs <- pairs(species_emms)
+print(species_pairs)
 species_letters <- cld(species_emms, Letters = letters, adjust = "tukey")
 print(species_letters)
 # residual diagnostics
