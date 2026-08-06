@@ -22,9 +22,16 @@ rm(list = ls())
 custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
 species_colors <- c(
   "AABR" = "#046E8F", 
-  "AGLO" = "#83BA75FF", 
+  "AGLO" = "lightgreen", 
   "AHYA" = "#D44D5C",
   "ICRA" = "#462255"  
+)
+
+species_colors <- c(
+  "AABR" = "#0077B6",  # Vibrant Deep Blue
+  "AGLO" = "#52B788",  # Light Mint / Sage Green
+  "AHYA" = "#9E2A2B",  # Dark Crimson Red
+  "ICRA" = "#E0A96D"   # Warm Gold / Light Ochre (replaces dark purple)
 )
 
 species_labels <- c(

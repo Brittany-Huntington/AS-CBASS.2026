@@ -12,6 +12,14 @@ library(CBASSED50) #Voolstra R package
 mandatory_columns()
 rm(list = ls())
 
+custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
+species_colors <- c(
+  "AABR" = "#046E8F", # Muted Crimson/Rose Red (#D44D5CFF)
+  "AGLO" = "#83BA75FF", # Light Sage Teal (#9DD9D2FF)
+  "AHYA" = "#D44D5C", # Deep Ocean Blue (#046E8FFF)
+  "ICRA" = "#462255"  # Bright Amber/Orange (#FF8811FF) -- (or "#462255" for Deep Purple)
+)
+
 #####Load and Prep Data-----------------------------
 # Get the input file path; click on which site file you want to work with
 input_data_path <- selectFile(
@@ -204,7 +212,9 @@ tempresp_curve <- ggplot(result_df,
              aes(x = Temperature,
                  y = Pam_value)) +
   xlab("Temperature [C°]")+
-  scale_y_continuous(expand = c(0, 0.2))
+  scale_y_continuous(expand = c(0, 0.2))+
+  scale_color_manual(values = species_colors) +
+  scale_fill_manual(values = species_colors)
 
 tempresp_curve
 #update site name
