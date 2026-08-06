@@ -1,0 +1,215 @@
+```{r}
+library(tidyverse)
+library(igraph)
+library(here)
+
+# =========================================================================
+# STEP 1: Load Unfiltered Data & Build Master Analysis Dataframe
+# =========================================================================
+# 1. Load Bootstrapped Cluster Tree & Photophysiology Matrix
+load(here("Data", "Alls.cor_clean.RData"))      # Scaled clean matrix, unfiltered
+load(here("Data", "cbb_AS26_expt_1000bs_updated.RData")) # Bootstrapped hclust (cbb)
+raw     <- read.csv(here("Data", "TUT_experimental_data.csv"))
+ed_data <- read.csv(here("Data", "AS26_ED50_CI_BIC_TAO.csv"))
+
+# 2. Extract K = 2 to 15 from cbb
+sample_ids <- cbb$hclust$labels
+cluster_matrix <- map_dfc(2:15, function(k) {
+  cutree(cbb$hclust, k = k)
+})
+colnames(cluster_matrix) <- paste0("K_", 2:15)
+
+df_clusters <- data.frame(SampleID = sample_ids, cluster_matrix) %>%
+  mutate(
+    SampleID_clean = SampleID %>%
+      tolower() %>%
+      str_replace("\\.processed\\.csv$", "") %>%
+      str_replace("\\._?\\d{2,3}r$", "") %>%
+      trimws()
+  )
+
+# 3. Construct Master Analysis Dataframe
+allphoto_df <- as.data.frame(Alls.cor_clean)
+allphoto_df$SampleID_clean <- rownames(Alls.cor_clean)
+
+# Store list of pure photophysiology metric column names
+spp_pp_metrics <- colnames(Alls.cor_clean)
+
+df_master <- allphoto_df %>%
+  inner_join(df_clusters, by = "SampleID_clean") %>%
+  mutate(
+    site     = as.numeric(str_extract(SampleID_clean, "(?<=^t)\\d+")),
+    colony   = str_extract(SampleID_clean, "(?<=_)[a-z0-9]+$"),
+    species  = str_to_upper(str_extract(colony, "^[a-z]+")),
+    col_num  = as.numeric(str_extract(colony, "\\d+$")),
+    Genotype = paste0(species, "_s", formatC(site, flag = "0", width = 2), 
+                      "_c", formatC(col_num, flag = "0", width = 2))
+  ) %>%
+  left_join(ed_data, by = "Genotype") %>%
+  filter(!is.na(ED50), ED50 < 40) %>%
+  {
+    if ("ED50ci95" %in% colnames(.)) filter(., ED50ci95 <= 2) else .
+  } %>%
+  mutate(across(c(starts_with("K_"), site, species), as.factor))
+
+# Ensure metric vector only contains valid columns present in df_master
+spp_pp_metrics <- intersect(spp_pp_metrics, colnames(df_master))
+
+# =========================================================================
+# STEP 2: DEFINE GROUPING MODE & SPECIES FILTER
+# =========================================================================
+# CHOOSE YOUR SPECIES (Set to NULL to analyze all species together)
+target_species <- NULL  # e.g., "AABR", "AHYA", "AGLO", "ICRA", or NULL
+
+# CHOOSE YOUR GROUPING MODE: "K" or "ED50_Group"
+grouping_mode <- "ED50_Group"  # Options: "K" or "ED50_Group"
+
+# IF grouping_mode == "K", specify cluster resolution:
+k_cluster_col <- "K_3"  # e.g., "K_3", "K_6", "K_11"
+
+# IF grouping_mode == "ED50_Group", define custom quantile/threshold cut:
+ed50_split_type <- "tertile"  # Options: "binary" or "tertile"
+
+# --- Apply Filters & Define Active Grouping Column ---
+df_active <- df_master
+
+if (!is.null(target_species)) {
+  df_active <- df_active %>% filter(toupper(species) == toupper(target_species))
+}
+
+if (grouping_mode == "K") {
+  df_active <- df_active %>%
+    mutate(Active_Group = as.factor(.data[[k_cluster_col]])) %>%
+    filter(!is.na(Active_Group))
+  
+} else if (grouping_mode == "ED50_Group") {
+  if (ed50_split_type == "binary") {
+    med_val <- median(df_active$ED50, na.rm = TRUE)
+    df_active <- df_active %>%
+      mutate(Active_Group = factor(if_else(ED50 >= med_val, "High_ED50", "Low_ED50")))
+  } else if (ed50_split_type == "tertile") {
+    q_vals <- quantile(df_active$ED50, probs = c(0, 0.333, 0.666, 1), na.rm = TRUE)
+    df_active <- df_active %>%
+      mutate(Active_Group = cut(
+        ED50, 
+        breaks = q_vals, 
+        labels = c("Low_ED50", "Mid_ED50", "High_ED50"), 
+        include.lowest = TRUE
+      ))
+  }
+}
+
+cat("\n=========================================================\n")
+cat(" Running Unfiltered Analysis Mode:", grouping_mode, "\n")
+cat(" Active Groups Evaluated:", paste(levels(df_active$Active_Group), collapse = ", "), "\n")
+cat(" Total Samples Included:", nrow(df_active), "\n")
+cat("=========================================================\n\n")
+
+# =========================================================================
+# STEP 3: Sort by Means/Medians & Measure Metric Span Across Groups
+# =========================================================================
+metric_spans <- df_active %>%
+  dplyr::select(Active_Group, all_of(spp_pp_metrics)) %>%
+  pivot_longer(-Active_Group, names_to = "Metric", values_to = "Value") %>%
+  group_by(Metric, Active_Group) %>%
+  summarise(
+    Group_Mean   = mean(Value, na.rm = TRUE),
+    Group_Median = median(Value, na.rm = TRUE),
+    .groups      = "drop"
+  ) %>%
+  group_by(Metric) %>%
+  summarise(
+    Median_Span = max(Group_Median) - min(Group_Median),
+    Mean_Span   = max(Group_Mean) - min(Group_Mean),
+    .groups     = "drop"
+  ) %>%
+  mutate(
+    # Extract Metric Family (qQuant, Sigma, Tau1, Tau2, Connect, ABQ, etc.)
+    Metric_Family = str_extract(Metric, "(qQuant|Quant|mTau2|rTau1|ABQ|Connect|Sigma|NPQ|qP|qm)")
+  ) %>%
+  mutate(Metric_Family = if_else(is.na(Metric_Family), str_extract(Metric, "^[A-Za-z0-9]+"), Metric_Family)) %>%
+  arrange(desc(Mean_Span))
+
+# Display Top 10 broadest-shifting metrics across groups
+top15_spans <- head(metric_spans, 15)
+cat("--- TOP 15 UNFILTERED METRICS BY MEAN SPAN ACROSS GROUPS ---\n")
+print(top15_spans %>% dplyr::select(Metric, Metric_Family, Mean_Span, Median_Span))
+```
+
+
+```{r}
+# =========================================================================
+# STEP 4: Paired Correlation Matrix & Top Collinear Metric Clusters
+# =========================================================================
+# 1. Filter out zero-sd metrics
+valid_metrics <- spp_pp_metrics[sapply(df_active[, spp_pp_metrics], function(x) sd(x, na.rm = TRUE) > 0)]
+
+# 2. Compute correlation matrix on valid metrics
+cor_mat <- cor(df_active[, valid_metrics], use = "pairwise.complete.obs")
+
+adj_mat <- abs(cor_mat) > 0.6
+diag(adj_mat) <- FALSE
+adj_mat[is.na(adj_mat)] <- FALSE
+
+g_graph <- graph_from_adjacency_matrix(adj_mat, mode = "undirected", diag = FALSE)
+clusters_membership <- components(g_graph)$membership
+
+collinear_clusters_df <- data.frame(
+  Metric = names(clusters_membership),
+  Collinear_Cluster_ID = clusters_membership
+) %>%
+  filter(Metric %in% top10_spans$Metric) %>%
+  mutate(Metric_Family = str_extract(Metric, "^[A-Za-z0-9]+"))
+
+cat("\n--- TOP COLLINEAR TRAIT MODULES FOR SHIFTING METRICS ---\n")
+print(head(collinear_clusters_df, 10))
+
+# =========================================================================
+# STEP 5: Significance Testing across Groups with FDR Correction (BH)
+# =========================================================================
+p_val_results <- purrr::map_dfr(top10_spans$Metric, function(trait) {
+  form <- as.formula(paste(trait, "~ Active_Group"))
+  fit  <- aov(form, data = df_active)
+  p_val <- summary(fit)[[1]][1, "Pr(>F)"]
+  
+  data.frame(
+    Metric        = trait,
+    Metric_Family = str_extract(trait, "(qQuant|Quant|mTau2|rTau1|ABQ|Connect|Sigma|NPQ|qP|qm)"),
+    ANOVA_P_Value = p_val
+  )
+}) %>%
+  mutate(
+    Metric_Family = if_else(is.na(Metric_Family), str_extract(Metric, "^[A-Za-z0-9]+"), Metric_Family),
+    P_Adj_FDR     = p.adjust(ANOVA_P_Value, method = "BH"),
+    Significant   = P_Adj_FDR < 0.05
+  ) %>%
+  arrange(P_Adj_FDR)
+
+cat("\n--- FDR SIGNIFICANCE TESTING ACROSS GROUPS ---\n")
+print(p_val_results)
+
+# =========================================================================
+# STEP 6: Detailed Group-Level Means Breakdown for Top Significant Traits
+# =========================================================================
+sig_metrics <- p_val_results %>% filter(Significant == TRUE) %>% pull(Metric)
+
+if (length(sig_metrics) > 0) {
+  group_summary_table <- df_active %>%
+    dplyr::select(Active_Group, all_of(sig_metrics)) %>%
+    pivot_longer(-Active_Group, names_to = "Metric", values_to = "Value") %>%
+    group_by(Metric, Active_Group) %>%
+    summarise(
+      Mean_Value = round(mean(Value, na.rm = TRUE), 3),
+      SE_Value   = round(sd(Value, na.rm = TRUE) / sqrt(n()), 3),
+      .groups    = "drop"
+    ) %>%
+    pivot_wider(
+      names_from  = Active_Group, 
+      values_from = c(Mean_Value, SE_Value)
+    )
+  
+  cat("\n--- UNFILTERED GROUP MEANS FOR SIGNIFICANT DRIVING TRAITS ---\n")
+  print(group_summary_table)
+}
+```
+
