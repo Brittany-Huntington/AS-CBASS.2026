@@ -1,0 +1,137 @@
+```{r}
+library(pheatmap)
+library(tidyverse)
+library(here)
+
+# ======================================================================
+# 1. Load Clean Pipeline Objects (RDS)
+# ======================================================================
+pp_90            <- readRDS(here("Outputs", "pp_90_filtered.rds"))
+fit_90           <- readRDS(here("Outputs", "fit_pvclust_90.rds"))
+ed_90_multiverse <- readRDS(here("Outputs", "ed_90_multiverse.rds"))
+
+# Define custom species colors
+species_colors <- c(
+  "AABR" = "#046E8F", 
+  "AGLO" = "lightgreen", 
+  "AHYA" = "#D44D5C",
+  "ICRA" = "#462255"  
+)
+
+# =========================================================================
+# 2. Extract Dendrogram & Format Matrix
+# =========================================================================
+# Grab hclust object directly from pvclust fit
+my_hclust <- fit_90$hclust
+original_labels <- my_hclust$labels
+
+# Format physiological matrix with samples as rows
+heatmap_matrix <- pp_90 %>%
+  column_to_rownames("sample_file") %>%
+  dplyr::select(-any_of(c("timepoint", "site", "genotype", "GroupingProperty")))
+
+# Align matrix rows to match dendrogram leaf order
+heatmap_matrix <- heatmap_matrix[match(original_labels, rownames(heatmap_matrix)), ] %>%
+  as.matrix()
+
+# Transpose (traits in rows, samples in columns), z-score scale, and cap outliers [-3, 3]
+heatmap_matrix_scaled <- t(scale(heatmap_matrix))
+heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
+heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
+
+# Keep column names matched to messy tree labels
+colnames(heatmap_matrix_scaled) <- original_labels
+
+# =========================================================================
+# 3. Filter Metrics & Prepare Row Annotations
+# =========================================================================
+# Filter out raw fluorescence baselines if present
+metric_names <- rownames(heatmap_matrix_scaled)
+keep_metrics <- metric_names[!metric_names %in% c("Fm", "Fo", "fm", "fo")]
+heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, ]
+
+# Build row annotation categories
+metric_names <- rownames(heatmap_matrix_scaled)
+annotation_row <- data.frame(Metric = case_when(
+  grepl("Quant",   metric_names, ignore.case = TRUE) ~ "Quant (Quantum Yield)",
+  grepl("Sigma",   metric_names, ignore.case = TRUE) ~ "Sigma (Antenna Size)",
+  grepl("Connect", metric_names, ignore.case = TRUE) ~ "Connect (Connectivity)",
+  grepl("Tau1",    metric_names, ignore.case = TRUE) ~ "Tau1 (Transport Kinetics 1)",
+  grepl("Tau2",    metric_names, ignore.case = TRUE) ~ "Tau2 (Transport Kinetics 2)",
+  grepl("NPQ",     metric_names, ignore.case = TRUE) ~ "NPQ (Non-Photochemical Quenching)",
+  grepl("qP",      metric_names, ignore.case = TRUE) ~ "qP (Photochemical Quenching)",
+  grepl("ABQ",     metric_names, ignore.case = TRUE) ~ "ABQ (Absorption)",
+  grepl("qm",      metric_names, ignore.case = TRUE) ~ "qm (Max Quenching)",
+  TRUE                                               ~ "Other Metric"
+))
+rownames(annotation_row) <- metric_names
+
+# Sort Matrix and Row Annotations alphabetically by Category
+sorted_order <- order(annotation_row$Metric)
+heatmap_matrix_scaled <- heatmap_matrix_scaled[sorted_order, ]
+annotation_row        <- annotation_row[sorted_order, , drop = FALSE]
+
+# =========================================================================
+# 4. Prepare Column Metadata (ed_90_multiverse)
+# =========================================================================
+# Ensure matching keys exist
+pp_90_keys <- pp_90 %>%
+  mutate(
+    tp_num    = str_match(sample_file, "^t(\\d+)")[,2],
+    geno_name = toupper(str_match(sample_file, "^t\\d+_([a-zA-Z]+)")[,2]),
+    rep_num   = str_match(sample_file, "^t\\d+_[a-zA-Z]+(\\d+)")[,2],
+    GroupingProperty = paste(tp_num, geno_name, rep_num, sep = "_")
+  ) %>%
+  dplyr::select(sample_file, GroupingProperty)
+
+annotation_col <- pp_90_keys %>%
+  left_join(ed_90_multiverse, by = "GroupingProperty") %>%
+  distinct(sample_file, .keep_all = TRUE) %>%
+  rename_with(~ "species", matches("^Species$"))
+
+# Match metadata rows directly to original tree labels
+annotation_col <- annotation_col[match(original_labels, annotation_col$sample_file), ]
+rownames(annotation_col) <- annotation_col$sample_file
+
+# Select annotation tracks for display
+annotation_col <- annotation_col %>% 
+  dplyr::select(species, K_3, K_4, K_6, K_11, ED50) %>%
+  mutate(across(c(species, K_3, K_4, K_6, K_11), as.factor))
+
+# Color mappings for tracks
+annotation_colors <- list(
+  species = species_colors
+)
+
+# =========================================================================
+# 5. Export Heatmap Plot
+# =========================================================================
+my_palette <- colorRampPalette(c("darkblue", "white", "darkred"))(100)
+my_breaks <- seq(-3, 3, length.out = 101)
+
+jpeg(
+  file   = here("Plots", "Sorted_Grouped_Physiological_Heatmap_pp90.jpg"), 
+  width  = 12, 
+  height = 10, 
+  units  = "in", 
+  res    = 300
+)
+
+pheatmap(
+  heatmap_matrix_scaled,
+  annotation_col    = annotation_col,
+  annotation_row    = annotation_row,
+  annotation_colors = annotation_colors,
+  show_colnames     = FALSE,         
+  show_rownames     = FALSE,          
+  cluster_rows      = FALSE,         
+  cluster_cols      = my_hclust,     
+  color             = my_palette,            
+  breaks            = my_breaks,            
+  main              = "Sorted MAPP Fluorescence Metrics vs. Clusters (pp_90)",
+  margins           = c(5, 20)       
+)
+
+dev.off()
+```
+
