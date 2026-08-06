@@ -1,0 +1,301 @@
+```{r}
+library(tidyverse)
+library(here)
+library(pvclust)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(performance)
+library(broom.mixed)
+library(multcomp)
+library(multcompView)
+library(ggrepel)
+
+custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
+species_colors <- c(
+  "AABR" = "#046E8F", 
+  "AGLO" = "lightgreen", 
+  "AHYA" = "#D44D5C",
+  "ICRA" = "#462255"  
+)
+
+pp_90_multiverse <- readRDS(here("Outputs", "ed_90_multiverse.rds"))
+
+#load data
+df_modeling_new <- pp_90_multiverse %>%
+ # 1. Standardize column names (Species -> species, site = timepoint)
+  rename_with(~ "species", matches("^Species$")) %>%
+  rename_with(~ "site", matches("^Site$")) %>%
+  mutate(
+    site    = as.factor(site),
+    species = as.factor(species),
+    across(starts_with("K_"), as.factor)
+  ) %>%
+  #2. Filter out missing modeling variables
+  filter(!is.na(ED50), !is.na(site), !is.na(species))
+
+# =========================================================================
+# STEP 2: Baseline Species Model
+# =========================================================================
+spp_m <- lmer(ED50 ~ species + (1 | site), data = df_modeling_new, REML = TRUE)
+
+# =========================================================================
+# STEP 3: Run Mixed Models Across All New K Clusters (pp_90 Data)
+# =========================================================================
+k_cols <- colnames(df_modeling_new)[str_detect(colnames(df_modeling_new), "^K_")]
+all_models <- list("Just_Spp" = spp_m)
+
+for (k_col in k_cols) {
+  k_num <- str_extract(k_col, "\\d+")
+  
+  # Model 1: Cluster alone + (1|site)
+  f_m  <- as.formula(paste0("ED50 ~ ", k_col, " + (1 | site)"))
+  all_models[[paste0("k", k_num, "m")]] <- lmer(f_m, data = df_modeling_new, REML = TRUE)
+  
+  # Model 2: Species + Cluster + (1|site)
+  f_ms <- as.formula(paste0("ED50 ~ species + ", k_col, " + (1 | site)"))
+  all_models[[paste0("k", k_num, "ms")]] <- lmer(f_ms, data = df_modeling_new, REML = TRUE)
+  
+  # Model 3: Species * Cluster interaction + (1|site)
+  f_msi <- as.formula(paste0("ED50 ~ species * ", k_col, " + (1 | site)"))
+  all_models[[paste0("k", k_num, "msi")]] <- tryCatch(
+    lmer(f_msi, data = df_modeling_new, REML = TRUE),
+    error = function(e) NULL
+  )
+}
+
+all_models <- compact(all_models)
+
+# =========================================================================
+# STEP 4: Master Performance Table (AIC, BIC, Marginal & Conditional R2)
+# =========================================================================
+master_model_table <- imap_dfr(all_models, function(model_obj, model_name) {
+  perf <- model_performance(model_obj)
+  r2_vals <- r2(model_obj)
+  
+  data.frame(
+    Model_Name      = model_name,
+    AIC             = round(perf$AIC, 1),
+    BIC             = round(perf$BIC, 1),
+    Marginal_R2     = round(r2_vals$R2_marginal, 3),
+    Conditional_R2  = round(r2_vals$R2_conditional, 3),
+    stringsAsFactors = FALSE
+  )
+}) %>%
+  arrange(BIC)
+
+cat("\n--- TOP MODELS RANKED BY BIC (BASED ON NEW pp_90 CLUSTERS) ---\n")
+print(head(master_model_table, 15))
+
+# =========================================================================
+# STEP 5: Model Efficiency Frontier Plot
+# =========================================================================
+plot_data <- master_model_table %>%
+  rename(R2_target = Conditional_R2)
+
+frontier_data <- plot_data %>%
+  arrange(BIC, desc(R2_target)) %>%
+  mutate(cum_max_R2 = cummax(R2_target)) %>%
+  filter(R2_target == cum_max_R2) %>%
+  distinct(R2_target, .keep_all = TRUE)
+
+plot_data <- plot_data %>%
+  mutate(is_frontier = Model_Name %in% frontier_data$Model_Name)
+
+p_frontier <- ggplot(plot_data, aes(x = BIC, y = R2_target)) +
+  geom_point(data = filter(plot_data, !is_frontier), color = "gray60", size = 2.5, alpha = 0.7) +
+  geom_point(data = filter(plot_data, is_frontier), color = "#1f77b4", size = 4) +
+  geom_text_repel(
+    aes(label = Model_Name, color = is_frontier),
+    size = 3.5,
+    fontface = ifelse(plot_data$is_frontier, "bold", "plain"),
+    max.overlaps = 20,
+    box.padding = 0.35
+  ) +
+  scale_color_manual(values = c("TRUE" = "#1f77b4", "FALSE" = "gray30")) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Model Efficiency Frontier (pp_90 Filtered Clusters)",
+    subtitle = "BIC vs Conditional R² for clusters built on r < 0.90 trait matrix",
+    x = "BIC",
+    y = expression("Conditional " * R^2)
+  ) +
+  theme(legend.position = "none", plot.title = element_text(face = "bold"))
+
+print(p_frontier)
+```
+
+
+```{r}
+# =========================================================================
+# STEP 6: Plot Best Model EMMs & Raw Data Points
+# =========================================================================
+selected_model_name <- "k3ms" 
+best_model          <- all_models[[selected_model_name]]
+print(anova(best_model))
+performance(best_model)
+# --- 2. Extract EMMs &  Letter Display ---
+k3ms_cluster_emm <- emmeans(best_model, specs = ~ K_3) 
+pairs(k3ms_cluster_emm, adjust="tukey")
+# BEST MODEL k3ms 
+# --- 1. Model Checks & ANOVA ---
+par(mfrow = c(1, 2))
+plot(resid(best_model) ~ fitted(best_model), main = "Residuals vs Fitted (k3ms)", xlab = "Fitted", ylab = "Residuals")
+qqnorm(resid(best_model), main = "Normal Q-Q Plot (k3ms)")
+qqline(resid(best_model), col = "red")
+par(mfrow = c(1, 1)) 
+
+
+# --- 2. Extract EMMs & Letter Display ---
+# weights = "proportional" calculates marginal means based on observed species counts in each cluster
+k3ms_cluster_emm <- emmeans(best_model, specs = ~ K_3, weights = "proportional") 
+
+# Convert EMM to dataframe and compute CLD letters
+cld_clusters <- cld(k3ms_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    K_3 = as.factor(K_3),
+    .group = trimws(.group)
+  )
+
+# Verify clean numbers
+print(cld_clusters)
+
+# --- 3. Generate Efficiency/Performance Plot with Raw Data ---
+plot_k3ms <- ggplot() +
+  # Layer A: Raw data jittered points (colored by species, shape by site)
+  geom_jitter(
+    data = df_modeling_new, 
+    aes(x = as.factor(K_3), y = ED50, color = species, shape = site),
+    width = 0.18, 
+    alpha = 0.55, 
+    size = 2.5
+  ) +
+  # Layer B: Model Estimated Marginal Means (Black points + Error bars)
+  geom_errorbar(
+    data = cld_clusters,
+    aes(x = K_3, ymin = lower.CL, ymax = upper.CL),
+    width = 0.12, 
+    linewidth = 0.9, 
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_clusters,
+    aes(x = K_3, y = emmean),
+    size = 4, 
+    color = "black"
+  ) +
+  # Layer C: Statistical significance letters (CLD)
+  geom_text(
+    data = cld_clusters,
+    aes(x = K_3, y = upper.CL + 0.15, label = .group),
+    fontface = "bold", 
+    size = 5.5, 
+    color = "black"
+  ) +
+  # Styling & Labels
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold"),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+    x = "Photophysiological Cluster (K = 3)",
+    y = expression(Estimated~Marginal~Mean~ED50~"("*degree*C*")"),
+    color = "Species",
+    shape = "Site"
+  ) +
+  scale_shape_manual(values = custom_shapes) +
+  scale_color_manual(values = species_colors) +
+  scale_fill_manual(values = species_colors) 
+
+print(plot_k3ms)
+```
+```{r}
+# =========================================================================
+# STEP 6: Plot Best Model EMMs & Raw Data Points
+# =========================================================================
+selected_model_name <- "k6ms" 
+best_model          <- all_models[[selected_model_name]]
+print(anova(best_model))
+performance(best_model)
+# --- 2. Extract EMMs &  Letter Display ---
+k6ms_cluster_emm <- emmeans(best_model, specs = ~ K_6) 
+pairs(k6ms_cluster_emm, adjust="tukey")
+# BEST MODEL k3ms 
+# --- 1. Model Checks & ANOVA ---
+par(mfrow = c(1, 2))
+plot(resid(best_model) ~ fitted(best_model), main = "Residuals vs Fitted (k6ms)", xlab = "Fitted", ylab = "Residuals")
+qqnorm(resid(best_model), main = "Normal Q-Q Plot (k3ms)")
+qqline(resid(best_model), col = "red")
+par(mfrow = c(1, 1)) 
+
+
+# --- 2. Extract EMMs & Letter Display ---
+# weights = "proportional" calculates marginal means based on observed species counts in each cluster
+k6ms_cluster_emm <- emmeans(best_model, specs = ~ K_6, weights = "proportional") 
+
+# Convert EMM to dataframe and compute CLD letters
+cld_clusters <- cld(k6ms_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    K_6 = as.factor(K_6),
+    .group = trimws(.group)
+  )
+
+# Verify clean numbers
+print(cld_clusters)
+
+# --- 3. Generate Efficiency/Performance Plot with Raw Data ---
+plot_k6ms <- ggplot() +
+  # Layer A: Raw data jittered points (colored by species, shape by site)
+  geom_jitter(
+    data = df_modeling_new, 
+    aes(x = as.factor(K_6), y = ED50, color = species, shape = site),
+    width = 0.18, 
+    alpha = 0.55, 
+    size = 2.5
+  ) +
+  # Layer B: Model Estimated Marginal Means (Black points + Error bars)
+  geom_errorbar(
+    data = cld_clusters,
+    aes(x = K_6, ymin = lower.CL, ymax = upper.CL),
+    width = 0.12, 
+    linewidth = 0.9, 
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_clusters,
+    aes(x = K_6, y = emmean),
+    size = 4, 
+    color = "black"
+  ) +
+  # Layer C: Statistical significance letters (CLD)
+  geom_text(
+    data = cld_clusters,
+    aes(x = K_6, y = upper.CL + 0.15, label = .group),
+    fontface = "bold", 
+    size = 5.5, 
+    color = "black"
+  ) +
+  # Styling & Labels
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold"),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+    x = "Photophysiological Cluster (K = 6)",
+    y = expression(Estimated~Marginal~Mean~ED50~"("*degree*C*")"),
+    color = "Species",
+    shape = "Site"
+  ) +
+  scale_shape_manual(values = custom_shapes) +
+  scale_color_manual(values = species_colors) +
+  scale_fill_manual(values = species_colors) 
+
+print(plot_k6ms)
+```
+
