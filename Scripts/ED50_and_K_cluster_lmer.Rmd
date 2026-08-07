@@ -18,15 +18,204 @@ df_modeling <- annot_master %>%
   mutate(across(c(starts_with("K_"), site), as.factor)) %>%
   filter(!is.na(ED50), !is.na(site))
 
+df_modeling%>%ggplot(aes(x=K_3,y=ED50))+geom_violin()+geom_jitter()
+
+#tom
+k3m=lmer(ED50~K_3+species+(1|site),data=df_modeling)
+mod <- lm(ED50 ~ factor(site) + species, data = df_modeling)
+mod_interaction <- lm(ED50 ~ factor(site) * species, data = df_modeling)
+
+summary(k3m)
+df_modeling_P=df_modeling
+df_modeling_P$site=4
+df_modeling_P$species="aglo"
+dfP=predict(k3m,newdata=df_modeling_P,type="response")
 k_cols <- paste0("K_", 2:15)
+dfP%>%ggplot(aes(x=K_3,y=ED50))+geom_violin()+geom_jitter()
 
 ## for plotting: define shapes and colors
-
-# 15=Square, 16=Circle, 17=Triangle, 18=Diamond, 
-# 21=Bordered Circle, 22=Bordered Square, 23=Bordered Diamond, 24=Bordered Triangle
 custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
-custom_colors<-scale_fill_manual(values = c("darkolivegreen", "darkorange4", "salmon"))
-custom_colors<-scale_color_manual(values = c("darkolivegreen", "darkorange4", "salmon"))
+
+#look at raw data
+df_modeling %>% 
+  ggplot(aes(x = factor(site), y = ED50)) +
+  geom_point(
+    aes(color = species, shape = factor(K_3)),
+    size = 2.5,
+    alpha = 0.7
+  ) +
+  scale_color_manual(values = species_colors) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Site",
+    y = expression(ED[50]),
+    color = "Species",
+    shape = "Cluster (K_3)"
+  )
+
+ggplot(df_modeling, aes(x = factor(site), y = ED50, color = species)) +
+  # Add boxplots/violin to show raw distribution
+  geom_boxplot(outlier.shape = NA, alpha = 0.2) +
+  geom_jitter(aes(shape = factor(K_3)), width = 0.2, size = 2.5, alpha = 0.8) +
+  facet_wrap(~ species, scales = "fixed") +
+  scale_color_manual(values = species_colors) +
+  #scale_shape_manual(values = custom_shapes, name = "Cluster (K_3)") +
+  theme_classic(base_size = 13) +
+  theme(legend.position = "bottom") +
+  labs(
+    #title = "Raw ED50 Distributions Faceted by Species",
+    x = "Site", y = "ED50"
+  )
+
+library(tidyverse)
+library(ggplot2)
+
+# =========================================================================
+# 1. Calculate Raw Summary Statistics (Mean, SE, SD, Median)
+# =========================================================================
+raw_stats <- df_modeling %>%
+  group_by(site, species) %>%
+  summarise(
+    n          = n(),
+    raw_mean   = mean(ED50, na.rm = TRUE),
+    raw_median = median(ED50, na.rm = TRUE),
+    sd         = sd(ED50, na.rm = TRUE),
+    se         = sd / sqrt(n),
+    # Error bars for SE
+    lower_se   = raw_mean - se,
+    upper_se   = raw_mean + se,
+    .groups    = "drop"
+  )
+
+# Make sure site is a factor matching your layout
+raw_stats$site   <- factor(raw_stats$site)
+df_modeling$site <- factor(df_modeling$site)
+
+# =========================================================================
+# 2. Plot Raw Means + SE + Raw Points
+# =========================================================================
+p_raw_summary <- ggplot() +
+  # --- Background Raw Individual Data Points ---
+  geom_jitter(
+    data = df_modeling,
+    aes(x = site, y = ED50, color = species, shape=K_3),
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.55),
+    alpha = 0.35,
+    size = 2.0
+  ) +
+  
+  # --- Raw Means (Large Solid Points) ---
+  geom_point(
+    data = raw_stats,
+    aes(x = site, y = raw_mean, color = species),
+    position = position_dodge(width = 0.55),
+    size = 3.8
+  ) +
+  
+  # --- Raw Standard Error Bars ---
+  geom_errorbar(
+    data = raw_stats,
+    aes(x = site, ymin = lower_se, ymax = upper_se, color = species),
+    position = position_dodge(width = 0.55),
+    width = 0.20,
+    linewidth = 0.85
+  ) +
+  
+  # --- Aesthetics & Formatting ---
+  scale_color_manual(values = species_colors, name = "species") +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "right",
+    plot.title      = element_text(face = "bold", size = 16, hjust = 0.5),
+    plot.subtitle   = element_text(size = 12, hjust = 0.5, color = "grey30")
+  ) +
+  labs(
+    title    = "Raw Data Summaries: Mean ± SE",
+    subtitle = "Summary statistics calculated directly from observed ED50 values",
+    x        = "Site",
+    y        = "ED50"
+  )
+
+print(p_raw_summary)
+
+library(visreg)
+
+# Visualizes site effects after partialling out species differences
+visreg(mod, "site", by = "species", overlay = TRUE, 
+       gg = TRUE, partial = TRUE) +
+  theme_classic(base_size = 14) +
+  scale_color_manual(values = species_colors) +
+  labs(
+    title = "Partial Residuals (ED50 controlled for species)",
+    y = "Adjusted ED50"
+  )
+
+emm_df <- emmeans(mod, ~ species | site) %>% 
+  as.data.frame()
+
+# 3. Overlay Model Predictions on Raw Data
+ggplot() +
+  # Raw data points (faded in background)
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = factor(site), y = ED50, color = species), 
+    width = 0.15, alpha = 0.3, size = 2
+  ) +
+  # Model predicted means (large filled points)
+  geom_point(
+    data = emm_df, 
+    aes(x = factor(site), y = emmean, color = species), 
+    size = 4, position = position_dodge(width = 0.5)
+  ) +
+  # Model 95% Confidence Intervals
+  geom_errorbar(
+    data = emm_df, 
+    aes(x = factor(site), ymin = lower.CL, ymax = upper.CL, color = species), 
+    width = 0.2, position = position_dodge(width = 0.5), linewidth = 0.8
+  ) +
+  scale_color_manual(values = species_colors) +
+  theme_classic(base_size = 14) +
+  labs(
+    title = "Model Predictions (EMMs) vs. Raw Data Points",
+    subtitle = "Gap between points and faded raw data shows controlling adjustments",
+    x = "Site", y = "ED50"
+  )
+
+mod <- lm(ED50 ~ factor(site) + species, data = df_modeling)
+mod_interaction <- lm(ED50 ~ factor(site) * species, data = df_modeling)
+
+# Compare AIC / Likelihood Ratio Test
+anova(k3m, mod, mod_interaction)
+
+# 1. Extract EMMs from the interaction model
+emm_interaction <- emmeans(mod_interaction, ~ species | site) %>% 
+  as.data.frame()
+
+# 2. Plot Interaction EMMs over raw points
+ggplot() +
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = factor(site), y = ED50, color = species), 
+    width = 0.12, alpha = 0.35, size = 2
+  ) +
+  geom_point(
+    data = emm_interaction, 
+    aes(x = factor(site), y = emmean, color = species), 
+    size = 3.5, position = position_dodge(width = 0.5)
+  ) +
+  geom_errorbar(
+    data = emm_interaction, 
+    aes(x = factor(site), ymin = lower.CL, ymax = upper.CL, color = species), 
+    width = 0.25, position = position_dodge(width = 0.5), linewidth = 0.8
+  ) +
+  scale_color_manual(values = species_colors) +
+  theme_classic(base_size = 14) +
+  labs(
+    title = "Site × Species Interaction Model Predictions",
+    #subtitle = "Predictions now align accurately with species-specific raw site distributions",
+    x = "Site", y = "ED50"
+  )
+
 ```
 
 ```{r}
@@ -345,11 +534,302 @@ plot_k3ms <- ggplot() +
 print(plot_k3ms)
 
 ```
+```{r}
+#check interaction model
+# MODEL k3msi
+# --- 1. Model Checks & ANOVA ---
+par(mfrow = c(1, 2))
+plot(resid(k3msi) ~ fitted(k3m), main = "Residuals vs Fitted (k3m)", xlab = "Fitted", ylab = "Residuals")
+qqnorm(resid(k3m), main = "Normal Q-Q Plot (k3ms)")
+qqline(resid(k3m), col = "red")
+par(mfrow = c(1, 1)) 
+
+#Test overall significance of single model
+anova(k3m)  #both are sig, p < 0.001
+
+# --- 2. Extract EMMs &  Letter Display ---
+k3m_cluster_emm <- emmeans(k3m, specs = ~ K_3) 
+
+# Convert EMM to dataframe and compute CLD letters
+cld_clusters <- cld(k3m_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    K_3 = as.factor(K_3),
+    .group = trimws(.group)
+  )
+
+# --- 3. Generate Efficiency/Performance Plot with Raw Data ---
+plot_k3m <- ggplot() +
+  # Layer A: Raw data jittered points (colored by species, shape by site)
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = as.factor(K_3), y = ED50, color = species, shape = site),
+    width = 0.18, 
+    alpha = 0.55, 
+    size = 2.5
+  ) +
+  # Layer B: Model Estimated Marginal Means (Black points + Error bars)
+  geom_errorbar(
+    data = cld_clusters,
+    aes(x = K_3, ymin = lower.CL, ymax = upper.CL),
+    width = 0.12, 
+    linewidth = 0.9, 
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_clusters,
+    aes(x = K_3, y = emmean),
+    size = 4, 
+    color = "black"
+  ) +
+  # Layer C: Statistical significance letters (CLD)
+  geom_text(
+    data = cld_clusters,
+    aes(x = K_3, y = upper.CL + 0.15, label = .group),
+    fontface = "bold", 
+    size = 5.5,
+    color = "black"
+  ) +
+  # Styling & Labels
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold"),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+    #title = "Photophysiological Cluster Thermal Performance",
+    #subtitle = "Controlling for species identity; species:K_3 interaction non-significant (p = 0.36)",
+    x = "Photophysiological Cluster (K = 3)",
+    y = expression(Estimated~Marginal~Mean~ED50~"("*degree*C*")"),
+    color = "Species",
+    shape = "Site"
+  )+
+  scale_shape_manual(values = custom_shapes) 
+
+print(plot_k3m) #so it’s the species effect pulling it down
+```
+```{r}
+#check only aabr and aglo
+agloaabr <- df_modeling %>%
+  filter(species %in% c("aabr", "aglo"))
+
+k3ms=lmer(ED50~K_3+species+(1|site),data=agloaabr)
+k3m=lmer(ED50~K_3+(1|site),data=agloaabr)
+
+# --- 2. Extract EMMs &  Letter Display ---
+emm <- emmeans(k3ms, specs = ~ species) 
+
+# Convert EMM to dataframe and compute CLD letters
+cld_clusters <- cld(emm, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    K_3 = as.factor(K_3),
+    .group = trimws(.group)
+  )
+pairs(emmeans(k3ms, ~ species))
+pairs(emmeans(k3ms, ~ K_3))
+
+plot_k3ma <- ggplot() +
+  # Layer A: Raw data jittered points (colored by species, shape by site)
+  geom_jitter(
+    data = agloaabr, 
+    aes(x = as.factor(K_3), y = ED50, color = species, shape = site),
+    width = 0.18, 
+    alpha = 0.55, 
+    size = 2.5
+  ) +
+  # Layer B: Model Estimated Marginal Means (Black points + Error bars)
+  geom_errorbar(
+    data = cld_clusters,
+    aes(x = K_3, ymin = lower.CL, ymax = upper.CL),
+    width = 0.12, 
+    linewidth = 0.9, 
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_clusters,
+    aes(x = K_3, y = emmean),
+    size = 4, 
+    color = "black"
+  ) +
+  # Layer C: Statistical significance letters (CLD)
+  geom_text(
+    data = cld_clusters,
+    aes(x = K_3, y = upper.CL + 0.15, label = .group),
+    fontface = "bold", 
+    size = 5.5,
+    color = "black"
+  ) +
+  # Styling & Labels
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold"),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+    #title = "Photophysiological Cluster Thermal Performance",
+    #subtitle = "Controlling for species identity; species:K_3 interaction non-significant (p = 0.36)",
+    x = "Photophysiological Cluster (K = 3)",
+    y = expression(Estimated~Marginal~Mean~ED50~"("*degree*C*")"),
+    color = "Species",
+    shape = "Site"
+  )+
+  scale_shape_manual(values = custom_shapes) 
+
+print(plot_k3ma)
+  
+
+#Test overall significance of single model
+anova(k3m)  #both are sig, p < 0.001
+
+# --- 2. Extract EMMs &  Letter Display ---
+k3m_cluster_emm <- emmeans(k3m, specs = ~ K_3) 
+
+# Convert EMM to dataframe and compute CLD letters
+cld_clusters <- cld(k3m_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    K_3 = as.factor(K_3),
+    .group = trimws(.group)
+  )
+
+# --- 3. Generate Efficiency/Performance Plot with Raw Data ---
+plot_k3m <- ggplot() +
+  # Layer A: Raw data jittered points (colored by species, shape by site)
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = as.factor(K_3), y = ED50, color = species, shape = site),
+    width = 0.18, 
+    alpha = 0.55, 
+    size = 2.5
+  ) +
+  # Layer B: Model Estimated Marginal Means (Black points + Error bars)
+  geom_errorbar(
+    data = cld_clusters,
+    aes(x = K_3, ymin = lower.CL, ymax = upper.CL),
+    width = 0.12, 
+    linewidth = 0.9, 
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_clusters,
+    aes(x = K_3, y = emmean),
+    size = 4, 
+    color = "black"
+  ) +
+  # Layer C: Statistical significance letters (CLD)
+  geom_text(
+    data = cld_clusters,
+    aes(x = K_3, y = upper.CL + 0.15, label = .group),
+    fontface = "bold", 
+    size = 5.5,
+    color = "black"
+  ) +
+  # Styling & Labels
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold"),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+    #title = "Photophysiological Cluster Thermal Performance",
+    #subtitle = "Controlling for species identity; species:K_3 interaction non-significant (p = 0.36)",
+    x = "Photophysiological Cluster (K = 3)",
+    y = expression(Estimated~Marginal~Mean~ED50~"("*degree*C*")"),
+    color = "Species",
+    shape = "Site"
+  )+
+  scale_shape_manual(values = custom_shapes) 
+
+print(plot_k3m)
+```
+
+
+```{r}
+#check interaction model
+# MODEL k3msi
+# --- 1. Model Checks & ANOVA ---
+par(mfrow = c(1, 2))
+plot(resid(k3msi) ~ fitted(k3msi), main = "Residuals vs Fitted (k3ms)", xlab = "Fitted", ylab = "Residuals")
+qqnorm(resid(k3msi), main = "Normal Q-Q Plot (k3ms)")
+qqline(resid(k3msi), col = "red")
+par(mfrow = c(1, 1)) 
+
+#Test overall significance of single model
+anova(k3msi)  #both are sig, p < 0.001
+
+# --- 2. Extract EMMs &  Letter Display ---
+k3msi_cluster_emm <- emmeans(k3msi, specs = ~ K_3) 
+
+# Convert EMM to dataframe and compute CLD letters
+cld_clusters <- cld(k3msi_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    K_3 = as.factor(K_3),
+    .group = trimws(.group)
+  )
+
+# --- 3. Generate Efficiency/Performance Plot with Raw Data ---
+plot_k3msi <- ggplot() +
+  # Layer A: Raw data jittered points (colored by species, shape by site)
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = as.factor(K_3), y = ED50, color = species, shape = site),
+    width = 0.18, 
+    alpha = 0.55, 
+    size = 2.5
+  ) +
+  # Layer B: Model Estimated Marginal Means (Black points + Error bars)
+  geom_errorbar(
+    data = cld_clusters,
+    aes(x = K_3, ymin = lower.CL, ymax = upper.CL),
+    width = 0.12, 
+    linewidth = 0.9, 
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_clusters,
+    aes(x = K_3, y = emmean),
+    size = 4, 
+    color = "black"
+  ) +
+  # Layer C: Statistical significance letters (CLD)
+  geom_text(
+    data = cld_clusters,
+    aes(x = K_3, y = upper.CL + 0.15, label = .group),
+    fontface = "bold", 
+    size = 5.5,
+    color = "black"
+  ) +
+  # Styling & Labels
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold"),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+    #title = "Photophysiological Cluster Thermal Performance",
+    #subtitle = "Controlling for species identity; species:K_3 interaction non-significant (p = 0.36)",
+    x = "Photophysiological Cluster (K = 3)",
+    y = expression(Estimated~Marginal~Mean~ED50~"("*degree*C*")"),
+    color = "Species",
+    shape = "Site"
+  )+
+  scale_shape_manual(values = custom_shapes) 
+
+print(plot_k3msi)
+```
 
 ```{r}
 #now plot by species on x axis 
 # --- 1. Compute EMMs & Letters for Species ---
 k3ms_species_emm <- emmeans(k3ms, specs = ~ species)
+
+k3ms_cluster_emm <- emmeans(k3ms, specs = ~ K_3)
 
 cld_species <- cld(k3ms_species_emm, adjust = "tukey", Letters = letters) %>%
   as.data.frame() %>%
@@ -359,7 +839,7 @@ cld_species <- cld(k3ms_species_emm, adjust = "tukey", Letters = letters) %>%
   )
 
 # --- 2. Plot Main Effect of Species ---
-# Replace 'my_data' with your actual model dataset
+
 plot_species_emm <- ggplot() +
   # Layer A: Raw data jittered (colored by K_3 cluster, shaped by site)
   geom_jitter(
@@ -599,6 +1079,7 @@ print(plot_k3_shifts)
 # Save the plot with a broad layout to accommodate the side-by-side species view
 #ggsave(here("Plots", "ED50_Shifts_K3_Faceted.png"),  plot = plot_k3_shifts, width = 11, height = 6, dpi = 300)
 ```
+
 ```{r}
 #k4ms 
 # --- 1. Model Checks & ANOVA ---
