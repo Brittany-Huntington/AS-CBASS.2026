@@ -13,28 +13,8 @@ library(tidyverse)
 library(multcomp)
 library(multcompView)
 library(purrr)
-custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
-species_colors <- c(
-  "AABR" = "#046E8F",
-  "AGLO" = "#83BA75FF",
-  "AHYA" = "#D44D5C",
-  "ICRA" = "#462255"
-)
-species_order <- c("ICRA", "AGLO", "AABR", "AHYA")
-KK_order<- c("ICRA_2", "AGLO_1", "AGLO_3", "AABR_1", "AABR_3", "AHYA_1")
-species_labels <- c(
-  "AGLO" = "A. globiceps",
-  "AABR" = "A. abrotanoides",
-  "AHYA" = "A. hyacinthus",
-  "ICRA" = "I. crateriformis"
-)
 
-K_order<- c("2", "1", "3")
-K_names <- c(
-  "2"="ICRA", 
-  "1" = "Acropora_1", 
-  "3" = "Acropora_2")
-K_names_order<- c("ICRA", "Acropora_1", "Acropora_2")
+source(here("Scripts/00_visualization_prep.R"))
 
 meta_filtered<-readRDS(here("Outputs", "master_cluster_metadata_K2_K15.rds"))
 
@@ -429,15 +409,15 @@ cld_clusters <- cld(k3ms_cluster_emm, adjust = "tukey", Letters = letters) %>%
 
 #factor level
 
-cluster_levels <- c("ICRA", "Acropora_1", "Acropora_2")
+cluster_levels <- c("Group I", "Group II", "Group III")
 df_modeling <- df_modeling %>%
   mutate(
     K_3_str = as.character(K_3),
     K_3_labeled = case_match(
       K_3_str,
-      "2" ~ "ICRA",
-      "1" ~ "Acropora_1",
-      "3" ~ "Acropora_2",
+      "2" ~ "Group I",
+      "1" ~ "Group II",
+      "3" ~ "Group III",
       .default = K_3_str
     ),
     K_3_labeled = factor(K_3_labeled, levels = cluster_levels)
@@ -449,9 +429,9 @@ cld_clusters <- cld_clusters %>%
     K_3_str = as.character(K_3),
     K_3_labeled = case_match(
       K_3_str,
-      "2" ~ "ICRA",
-      "1" ~ "Acropora_1",
-      "3" ~ "Acropora_2",
+      "2" ~ "Group I",
+      "1" ~ "Group II",
+      "3" ~ "Group III",
       .default = K_3_str
     ),
     K_3_labeled = factor(K_3_labeled, levels = cluster_levels)
