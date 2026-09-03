@@ -6,9 +6,9 @@ library(here)
 # ======================================================================
 # 1. Load Clean Pipeline Objects (RDS)
 # ======================================================================
-pp_90            <- readRDS(here("Outputs", "pp_90_filtered.rds"))
-fit_90           <- readRDS(here("Outputs", "fit_pvclust_90.rds"))
-ed_90_multiverse <- readRDS(here("Outputs", "ed_90_multiverse.rds"))
+pp_90            <- readRDS(here("Outputs", "pp_99_filtered.rds"))
+fit_90           <- readRDS(here("Outputs", "fit_pvclust_99.rds"))
+ed_90_multiverse <- readRDS(here("Outputs", "ed_99_multiverse.rds"))
 
 # Define custom species colors
 species_colors <- c(
@@ -66,6 +66,22 @@ annotation_row <- data.frame(Metric = case_when(
 ))
 rownames(annotation_row) <- metric_names
 
+metric_colors <- c(
+  "Quant (Quantum Yield)"             = "#1F77B4", # Strong Blue
+  "Sigma (Antenna Size)"              = "#FF7F0E", # Vivid Orange
+  "Connect (Connectivity)"            = "#2CA02C", # Leaf Green
+  "Tau1 (Transport Kinetics 1)"       = "#D62728", # Crimson Red
+  "Tau2 (Transport Kinetics 2)"       = "#9467BD", # Purple
+  "NPQ (Non-Photochemical Quenching)" = "#8C564B", # Warm Brown
+  "qP (Photochemical Quenching)"      = "#E377C2", # Pink/Rose
+  "ABQ (Absorption)"                  = "#17BECF", # Cyan
+  "qm (Max Quenching)"                = "#BCBD22", # Olive Yellow
+  "Other Metric"                      = "#7F7F7F"  # Slate Grey
+)
+
+# Package into list for pheatmap
+ann_colors <- list(Metric = metric_colors)
+
 # Sort Matrix and Row Annotations alphabetically by Category
 sorted_order <- order(annotation_row$Metric)
 heatmap_matrix_scaled <- heatmap_matrix_scaled[sorted_order, ]
@@ -93,10 +109,13 @@ annotation_col <- pp_90_keys %>%
 annotation_col <- annotation_col[match(original_labels, annotation_col$sample_file), ]
 rownames(annotation_col) <- annotation_col$sample_file
 
-# Select annotation tracks for display
-annotation_col <- annotation_col %>% 
+#Select annotation tracks for display
+annotation_col <- annotation_col %>%
   dplyr::select(species, K_3, K_4, K_6, K_11, ED50) %>%
   mutate(across(c(species, K_3, K_4, K_6, K_11), as.factor))
+# annotation_col <- annotation_col %>% 
+#   dplyr::select( K_3) %>%
+#   mutate(across(c( K_3), as.factor))
 
 # Color mappings for tracks
 annotation_colors <- list(
@@ -119,9 +138,9 @@ jpeg(
 
 pheatmap(
   heatmap_matrix_scaled,
+  annotation_colors = ann_colors,
   annotation_col    = annotation_col,
   annotation_row    = annotation_row,
-  annotation_colors = annotation_colors,
   show_colnames     = FALSE,         
   show_rownames     = FALSE,          
   cluster_rows      = FALSE,         
@@ -129,6 +148,142 @@ pheatmap(
   color             = my_palette,            
   breaks            = my_breaks,            
   main              = "Sorted MAPP Fluorescence Metrics vs. Clusters (pp_90)",
+  margins           = c(5, 20)       
+)
+
+dev.off()
+```
+
+
+
+NEW
+```{r}
+library(pheatmap)
+library(dplyr)
+library(tibble)
+library(pvclust)
+library(here)
+
+# =========================================================================
+# 1. LOAD PREPROCESSED DATA & CLUSTERING FIT
+# =========================================================================
+
+# Load preprocessed environment (contains metric_families, ed_aligned)
+load(here("Outputs", "photophys_preprocessed_data.RData"))
+
+# Load pvclust fit (assumes fit_pvclust_99 was computed on permanova_matrix_filtered)
+fit_90 <- readRDS(here("Outputs", "fit_pvclust_99.rds"))
+
+# Define custom species colors
+species_colors <- c(
+  "AABR" = "#046E8F", 
+  "AGLO" = "lightgreen", 
+  "AHYA" = "#D44D5C",
+  "ICRA" = "#462255"  
+)
+
+# =========================================================================
+# 2. EXTRACT DENDROGRAM & BUILD SCALED HEATMAP MATRIX
+# =========================================================================
+
+# Grab hclust tree directly from pvclust fit
+my_hclust <- fit_90$hclust
+original_labels <- my_hclust$labels # SampleIDs (e.g., "11_AABR_1")
+
+# Subset matrix to retain only collinearity-filtered metrics
+# Transpose so metrics are rows and samples are columns
+heatmap_matrix <- t(permanova_matrix_filtered)
+
+# Align columns to match leaf order of the dendrogram
+heatmap_matrix <- heatmap_matrix[, match(original_labels, colnames(heatmap_matrix))]
+
+# Z-score scale across metrics (rows) and cap outliers [-3, 3]
+heatmap_matrix_scaled <- t(scale(t(heatmap_matrix)))
+heatmap_matrix_scaled[is.na(heatmap_matrix_scaled) | is.nan(heatmap_matrix_scaled)] <- 0
+heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
+heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
+
+# Drop raw baseline metrics (Fm/Fo) if present
+keep_metrics <- !rownames(heatmap_matrix_scaled) %in% c("Fm", "Fo", "fm", "fo", "F0", "FM")
+heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, , drop = FALSE]
+
+# =========================================================================
+# 3. PREPARE ROW ANNOTATIONS (METRIC FAMILIES)
+# =========================================================================
+
+# Filter metric_families table to match active matrix rows
+annotation_row <- metric_families %>%
+  filter(Metric %in% rownames(heatmap_matrix_scaled)) %>%
+  select(Metric, Family) %>%
+  column_to_rownames("Metric")
+
+# Sort Matrix and Row Annotations alphabetically by Family
+sorted_order <- order(annotation_row$Family)
+heatmap_matrix_scaled <- heatmap_matrix_scaled[sorted_order, ]
+annotation_row         <- annotation_row[sorted_order, , drop = FALSE]
+
+# Define palette for metric families
+metric_colors <- c(
+  "Quant (Quantum Yield)"             = "#1F77B4", # Strong Blue
+  "Sigma (Antenna Size)"              = "#FF7F0E", # Vivid Orange
+  "Connect (Connectivity)"            = "#2CA02C", # Leaf Green
+  "Connect (Normalized Curves)"       = "#2CA02C", 
+  "Tau1 (Transport Kinetics 1)"       = "#D62728", # Crimson Red
+  "Tau2 (Transport Kinetics 2)"       = "#9467BD", # Purple
+  "NPQ (Non-Photochemical Quenching)" = "#8C564B", # Warm Brown
+  "qP (Photochemical Quenching)"      = "#E377C2", # Pink/Rose
+  "ABQ (Absorption)"                  = "#17BECF", # Cyan
+  "qm (Max Quenching)"                = "#BCBD22", # Olive Yellow
+  "OJIP Kinetics (Derivatives)"       = "#98DF8A", # Light Green
+  "OJIP Ratios & Area"                = "#FFBB78", # Light Orange
+  "Other Metric"                      = "#7F7F7F"  # Slate Grey
+)
+
+# =========================================================================
+# 4. PREPARE COLUMN ANNOTATIONS (SAMPLES)
+# =========================================================================
+
+# Match ed_aligned metadata directly to tree labels
+annotation_col <- ed_aligned %>%
+  filter(SampleID_clean %in% colnames(heatmap_matrix_scaled)) %>%
+  arrange(match(SampleID_clean, colnames(heatmap_matrix_scaled))) %>%
+  column_to_rownames("SampleID_clean") %>%
+  select(Species, any_of(c("K_3", "K_4", "K_6", "K_11")), ED50) %>%
+  mutate(across(c(Species, any_of(c("K_3", "K_4", "K_6", "K_11"))), as.factor))
+
+# Combine color maps for pheatmap
+ann_colors <- list(
+  Family  = metric_colors,
+  Species = species_colors
+)
+
+# =========================================================================
+# 5. RENDER & EXPORT HEATMAP
+# =========================================================================
+
+my_palette <- colorRampPalette(c("darkblue", "white", "darkred"))(100)
+my_breaks  <- seq(-3, 3, length.out = 101)
+
+jpeg(
+  file   = here("Plots", "Sorted_Grouped_Physiological_Heatmap_Filtered.jpg"), 
+  width  = 12, 
+  height = 10, 
+  units  = "in", 
+  res    = 300
+)
+
+pheatmap(
+  heatmap_matrix_scaled,
+  annotation_colors = ann_colors,
+  annotation_col    = annotation_col,
+  annotation_row    = annotation_row,
+  show_colnames     = FALSE,         
+  show_rownames     = FALSE,         
+  cluster_rows      = FALSE, # Preserves alphabetical Family sorting
+  cluster_cols      = my_hclust, # Direct pvclust tree      
+  color             = my_palette,            
+  breaks            = my_breaks,            
+  main              = "Collinearity-Filtered MAPP Fluorescence Metrics vs. Clusters",
   margins           = c(5, 20)       
 )
 

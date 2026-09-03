@@ -1,0 +1,892 @@
+```{r}
+rm(list = ls())
+library(dplyr)
+library(here)
+library(ggplot2)
+library(performance)
+library(vegan)
+library(emmeans)
+library(lme4)
+library(lmerTest)
+library(broom.mixed)
+library(tidyverse)
+library(multcomp)
+library(multcompView)
+library(purrr)
+custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
+species_colors <- c(
+  "AABR" = "#046E8F",
+  "AGLO" = "#83BA75FF",
+  "AHYA" = "#D44D5C",
+  "ICRA" = "#462255"
+)
+species_order <- c("ICRA", "AGLO", "AABR", "AHYA")
+KK_order<- c("ICRA_2", "AGLO_1", "AGLO_3", "AABR_1", "AABR_3", "AHYA_1")
+species_labels <- c(
+  "AGLO" = "A. globiceps",
+  "AABR" = "A. abrotanoides",
+  "AHYA" = "A. hyacinthus",
+  "ICRA" = "I. crateriformis"
+)
+
+K_order<- c("2", "1", "3")
+K_names <- c(
+  "2"="ICRA", 
+  "1" = "Acropora_1", 
+  "3" = "Acropora_2")
+K_names_order<- c("ICRA", "Acropora_1", "Acropora_2")
+ #or ed50
+
+annot_master<-read.csv(here("Outputs", "ed50_colorslope_cluster_metadata.csv")) #from phenotype_heatmap script
+df_modeling <- annot_master %>%
+  mutate(across(c(starts_with("K_"), Site), as.factor)) %>%
+  filter(!is.na(slope), !is.na(Site))
+
+df_modeling%>%ggplot(aes(x=K_3,y=slope))+geom_violin()+geom_jitter()
+
+#tom
+k3m=lmer(slope~K_3+Species+(1|Site),data=df_modeling)
+mod <- lm(slope ~ factor(Site) + Species, data = df_modeling)
+mod_interaction <- lm(slope ~ factor(Site) * Species, data = df_modeling)
+
+summary(k3m)
+df_modeling_P=df_modeling
+df_modeling_P$Site=4
+df_modeling_P$Species="AGLO"
+dfP=predict(k3m,newdata=df_modeling_P,type="response")
+k_cols <- paste0("K_", 2:15)
+#dfP%>%ggplot(aes(x=K_3,y=ED50))+geom_violin()+geom_jitter()
+
+
+
+#look at raw data
+df_modeling %>% 
+  ggplot(aes(x = factor(Site), y = slope)) +
+  geom_point(
+    aes(color = Species, shape = factor(K_3)),
+    size = 2.5,
+    alpha = 0.7
+  ) +
+  scale_color_manual(values = species_colors) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Site",
+    y = "slope",
+    color = "Species",
+    shape = "Cluster (K_3)"
+  )
+
+ggplot(df_modeling, aes(x = factor(Site), y = slope, color = Species)) +
+  # Add boxplots/violin to show raw distribution
+  geom_boxplot(outlier.shape = NA, alpha = 0.2) +
+  geom_jitter(aes(shape = factor(K_3)), width = 0.2, size = 2.5, alpha = 0.8) +
+  facet_wrap(~ Species, scales = "fixed") +
+  scale_color_manual(values = species_colors) +
+  #scale_shape_manual(values = custom_shapes, name = "Cluster (K_3)") +
+  theme_classic(base_size = 13) +
+  theme(legend.position = "bottom") +
+  labs(
+    #title = "Raw slope Distributions Faceted by Species",
+    x = "Site", y = "slope"
+  )
+```
+
+
+```{r}
+# =========================================================================
+# 1. Calculate Raw Summary Statistics (Mean, SE, SD, Median)
+# =========================================================================
+raw_stats <- df_modeling %>%
+  group_by(Site, Species) %>%
+  summarise(
+    n          = n(),
+    raw_mean   = mean(slope, na.rm = TRUE),
+    raw_median = median(slope, na.rm = TRUE),
+    sd         = sd(slope, na.rm = TRUE),
+    se         = sd / sqrt(n),
+    # Error bars for SE
+    lower_se   = raw_mean - se,
+    upper_se   = raw_mean + se,
+    .groups    = "drop"
+  )
+
+# Make sure site is a factor matching your layout
+raw_stats$Site   <- factor(raw_stats$Site)
+df_modeling$Site <- factor(df_modeling$Site)
+
+# =========================================================================
+# 2. Plot Raw Means + SE + Raw Points
+# =========================================================================
+p_raw_summary <- ggplot() +
+  # --- Background Raw Individual Data Points ---
+  geom_jitter(
+    data = df_modeling,
+    aes(x = Site, y = slope, color = Species, shape=K_3),
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.55),
+    alpha = 0.35,
+    size = 2.0
+  ) +
+  
+  # --- Raw Means (Large Solid Points) ---
+  geom_point(
+    data = raw_stats,
+    aes(x = Site, y = raw_mean, color = Species),
+    position = position_dodge(width = 0.55),
+    size = 3.8
+  ) +
+  
+  # --- Raw Standard Error Bars ---
+  geom_errorbar(
+    data = raw_stats,
+    aes(x = Site, ymin = lower_se, ymax = upper_se, color = Species),
+    position = position_dodge(width = 0.55),
+    width = 0.20,
+    linewidth = 0.85
+  ) +
+  
+  # --- Aesthetics & Formatting ---
+  scale_color_manual(values = species_colors, name = "species") +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "right",
+    plot.title      = element_text(face = "bold", size = 16, hjust = 0.5),
+    plot.subtitle   = element_text(size = 12, hjust = 0.5, color = "grey30")
+  ) +
+  labs(
+    title    = "Raw Data Summaries: Mean ± SE",
+    subtitle = "Summary statistics calculated directly from observed slope values",
+    x        = "Site",
+    y        = "ED50"
+  )
+
+print(p_raw_summary)
+
+library(visreg)
+
+# Visualizes site effects after partialling out species differences
+p<-visreg(mod, "Site", by = "Species", overlay = TRUE, 
+       gg = TRUE, partial = TRUE) +
+  theme_classic(base_size = 14) +
+  scale_color_manual(values = species_colors) +
+  labs(
+    title = "Partial Residuals (slope controlled for species)",
+    y = "Adjusted slope"
+  )
+
+emm_df <- emmeans(mod, ~ Species | Site) %>% 
+  as.data.frame()
+
+# 3. Overlay Model Predictions on Raw Data
+ggplot() +
+  # Raw data points (faded in background)
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = factor(Site), y = slope, color = Species), 
+    width = 0.15, alpha = 0.3, size = 2
+  ) +
+  # Model predicted means (large filled points)
+  geom_point(
+    data = emm_df, 
+    aes(x = factor(Site), y = emmean, color = Species), 
+    size = 4, position = position_dodge(width = 0.5)
+  ) +
+  # Model 95% Confidence Intervals
+  geom_errorbar(
+    data = emm_df, 
+    aes(x = factor(Site), ymin = lower.CL, ymax = upper.CL, color = Species), 
+    width = 0.2, position = position_dodge(width = 0.5), linewidth = 0.8
+  ) +
+  scale_color_manual(values = species_colors) +
+  theme_classic(base_size = 14) +
+  labs(
+    title = "Model Predictions (EMMs) vs. Raw Data Points",
+    subtitle = "Gap between points and faded raw data shows controlling adjustments",
+    x = "Site", y = "slope"
+  )
+
+mod <- lm(slope ~ factor(Site) + Species, data = df_modeling)
+mod_interaction <- lm(slope ~ factor(Site) * Species, data = df_modeling)
+
+# Compare AIC / Likelihood Ratio Test
+anova(k3m, mod, mod_interaction)
+
+# 1. Extract EMMs from the interaction model
+emm_interaction <- emmeans(mod_interaction, ~ Species | Site) %>% 
+  as.data.frame()
+
+# 2. Plot Interaction EMMs over raw points
+ggplot() +
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = factor(Site), y = slope, color = Species), 
+    width = 0.12, alpha = 0.35, size = 2
+  ) +
+  geom_point(
+    data = emm_interaction, 
+    aes(x = factor(Site), y = emmean, color = Species), 
+    size = 3.5, position = position_dodge(width = 0.5)
+  ) +
+  geom_errorbar(
+    data = emm_interaction, 
+    aes(x = factor(Site), ymin = lower.CL, ymax = upper.CL, color = Species), 
+    width = 0.25, position = position_dodge(width = 0.5), linewidth = 0.8
+  ) +
+  scale_color_manual(values = species_colors) +
+  theme_classic(base_size = 14) +
+  labs(
+    title = "Site × Species Interaction Model Predictions",
+    #subtitle = "Predictions now align accurately with species-specific raw site distributions",
+    x = "Site", y = "slope"
+  )
+
+```
+
+```{r}
+#models
+spp_m <- lmer(slope ~ Species + (1 | Site), data = df_modeling, REML = FALSE)
+k3_model <-lmer(slope ~ K_3 + (1 | Site), data = df_modeling, REML = FALSE)
+k4_model <-lmer(slope ~ K_4 + (1 | Site), data = df_modeling, REML = FALSE)
+k3ms <- lmer(slope ~ Species + K_3 + (1 | Site), data = df_modeling, REML = FALSE)
+k4ms <- lmer(slope ~ Species + K_4 + (1 | Site), data = df_modeling, REML = FALSE)
+k3msi <- lmer(slope ~ Species * K_3 + (1 | Site), data = df_modeling, REML = FALSE)
+k4msi <- lmer(slope ~ Species * K_4 + (1 | Site), data = df_modeling, REML = FALSE)
+k3_spp_random <- lmer(slope ~ K_3 + (1 | Site) + (1 | Species), data = df_modeling, REML = FALSE)
+k4_spp_random <- lmer(slope ~ K_4 + (1 | Site) + (1 | Species), data = df_modeling, REML = FALSE)
+```
+
+```{r}
+plot_data <- master_model_table %>%
+  rename(R2_target = Conditional_R2)
+
+# 2. Compute the Efficiency (Pareto) Frontier
+# Sort by BIC ascending, then calculate cumulative max R2
+frontier_data <- plot_data %>%
+  arrange(BIC, desc(R2_target)) %>%
+  mutate(cum_max_R2 = cummax(R2_target)) %>%
+  filter(R2_target == cum_max_R2) %>%
+  distinct(R2_target, .keep_all = TRUE)
+
+# 3. Tag models in main table as Efficient vs. Suboptimal
+plot_data <- plot_data %>%
+  mutate(is_frontier = Model_Name %in% frontier_data$Model_Name)
+
+# 4. Generate Efficiency Frontier Plot
+ggplot(plot_data, aes(x = BIC, y = R2_target)) +
+  # Draw step line for efficiency frontier
+  # geom_step(
+  #   data = frontier_data,
+  #   aes(x = BIC, y = R2_target),
+  #   direction = "hv",
+  #   color = "#1f77b4",
+  #   linewidth = 1,
+  #   linetype = "dashed"
+  # ) +
+  # Points for suboptimal models
+  geom_point(
+    data = filter(plot_data, !is_frontier),
+    color = "gray60",
+    size = 2.5,
+    alpha = 0.7
+  ) +
+  # Highlight points on the efficiency frontier
+  geom_point(
+    data = filter(plot_data, is_frontier),
+    color = "#1f77b4",
+    size = 4
+  ) +
+  # Model Labels (non-overlapping)
+  geom_text_repel(
+    aes(label = Model_Name, color = is_frontier),
+    size = 3.5,
+    fontface = ifelse(plot_data$is_frontier, "bold", "plain"),
+    max.overlaps = 20,
+    box.padding = 0.35
+  ) +
+  scale_color_manual(values = c("TRUE" = "#1f77b4", "FALSE" = "gray30")) +
+  theme_minimal(base_size = 12) +
+  labs(
+    title = "Model Efficiency Frontier (BIC vs. Conditional R²)",
+    #subtitle = "Dashed line marks Pareto-optimal models (higher R² for a given BIC penalty)",
+    x = "BIC ",
+    y = expression("Conditional " * R^2 * "")
+  ) +
+  theme(
+    legend.position = "none",
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+```
+
+
+```{r}
+all_models <- list(
+  spp_m    = spp_m,
+  k3_model = k3_model,
+  k4_model = k4_model,
+  k3ms     = k3ms,
+  k4ms     = k4ms,
+  k3msi    = k3msi,
+  k4msi    = k4msi,
+  k3_spp_random = k3_spp_random,
+  k4_spp_random = k4_spp_random
+)
+
+# 2. Extract AIC, BIC, and both R2 values together
+master_model_table <- imap_dfr(all_models, function(model_obj, model_name) {
+  
+  # Grab information criteria
+ perf <- model_performance(model_obj, estimator = "ML")
+  
+  # Grab variance partition metrics
+  r2_vals <- r2(model_obj)
+  
+  data.frame(
+    Model_Name      = model_name,
+    AIC             = round(perf$AIC, 1),
+    BIC             = round(perf$BIC, 1),
+    Marginal_R2     = round(r2_vals$R2_marginal, 3),
+    Conditional_R2  = round(r2_vals$R2_conditional, 3),
+    stringsAsFactors = FALSE
+  )
+})
+
+# 3. View the table sorted by AIC to look at the trade-offs cleanly
+print(master_model_table %>% arrange(AIC))
+#spp pnly is best, then k3msi
+
+k3_emmeans_obj <- emmeans(all_models$k3ms, pairwise ~ K_3, adjust = "tukey")
+k3_emm_df <- as.data.frame(k3_emmeans_obj$emmeans)
+k3_contrasts_df <- as.data.frame(k3_emmeans_obj$contrasts)
+
+cat("--- Estimated Marginal Means (ED50) for K_3 Clusters ---\n")
+print(k3_emm_df %>% dplyr::select(K_3, emmean, SE, df, lower.CL, upper.CL))
+
+cat("\n--- Pairwise Tukey Contrasts Between K_3 Clusters ---\n")
+print(k3_contrasts_df %>% dplyr::select(contrast, estimate, SE, p.value))
+
+#BEST MODEL k3ms 
+# --- 1. Model Checks & ANOVA ---
+par(mfrow = c(1, 2))
+plot(resid(k3ms) ~ fitted(k3ms), main = "Residuals vs Fitted (k3ms)", xlab = "Fitted", ylab = "Residuals")
+qqnorm(resid(k3ms), main = "Normal Q-Q Plot (k3ms)")
+qqline(resid(k3ms), col = "red")
+par(mfrow = c(1, 1)) 
+
+#Test overall significance of single model
+anova(k3ms)  #spp is sig here
+
+# --- 2. Extract EMMs &  Letter Display ---
+k3ms_cluster_emm <- emmeans(k3ms, specs = ~ K_3) 
+
+# Convert EMM to dataframe and compute CLD letters
+cld_clusters <- cld(k3ms_cluster_emm, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(
+    K_3 = as.factor(K_3),
+    .group = trimws(.group)
+  )
+
+#factor level
+
+cluster_levels <- c("ICRA", "Acropora_1", "Acropora_2")
+df_modeling <- df_modeling %>%
+  mutate(
+    K_3_str = as.character(K_3),
+    K_3_labeled = case_match(
+      K_3_str,
+      "2" ~ "ICRA",
+      "1" ~ "Acropora_1",
+      "3" ~ "Acropora_2",
+      .default = K_3_str
+    ),
+    K_3_labeled = factor(K_3_labeled, levels = cluster_levels)
+  )
+
+#align cld_clusters identically
+cld_clusters <- cld_clusters %>%
+  mutate(
+    K_3_str = as.character(K_3),
+    K_3_labeled = case_match(
+      K_3_str,
+      "2" ~ "ICRA",
+      "1" ~ "Acropora_1",
+      "3" ~ "Acropora_2",
+      .default = K_3_str
+    ),
+    K_3_labeled = factor(K_3_labeled, levels = cluster_levels)
+  )
+
+# 4. Generate Plot (both layers now use identical K_3_labeled factors)
+plot_k3ms <- ggplot() +
+  # Layer A: Raw jittered points
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = K_3_labeled, y = slope, color = Species, fill = Species, shape = Site),
+    width = 0.18, 
+    alpha = 0.55, 
+    size = 2.5
+  ) +
+  # Layer B: Model Estimated Marginal Means (Black points + Error bars)
+  geom_errorbar(
+    data = cld_clusters,
+    aes(x = K_3_labeled, ymin = lower.CL, ymax = upper.CL),
+    width = 0.12, 
+    linewidth = 0.9, 
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_clusters,
+    aes(x = K_3_labeled, y = emmean),
+    size = 4, 
+    color = "black"
+  ) +
+  # Layer C: Statistical significance letters (CLD)
+  geom_text(
+    data = cld_clusters,
+    aes(x = K_3_labeled, y = upper.CL + 0.15, label = .group),
+    fontface = "bold", 
+    size = 5.5,
+    color = "black"
+  ) +
+  # Styling & Labels
+  theme_classic(base_size = 14) +
+  theme(
+   axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+    x = "Photophysiological Cluster",
+    y = expression(Estimated~Marginal~Mean~slope~"("*degree*C*")"),
+    color = "Species",
+    fill  = "Species",
+    shape = "Site"
+  ) +
+  scale_color_manual(values = species_colors, limits = species_order) +
+  scale_fill_manual(values = species_colors, limits = species_order) + 
+  scale_shape_manual(values = custom_shapes)
+
+print(plot_k3ms)
+```
+
+```{r}
+library(lme4)
+library(lmerTest)
+library(tidyverse)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+library(patchwork)
+
+# ==============================================================================
+# 1. Setup Data for the Winning k3ms Model
+# ==============================================================================
+Ychoice <- "slope" # Set to "ED50" or your color slope variable name
+
+cb_clean <- df_modeling %>%
+  filter(!is.na(.data[[Ychoice]]), !is.na(Species), !is.na(Site), !is.na(K_3)) %>%
+  mutate(
+    YY      = .data[[Ychoice]],
+    Species = droplevels(as.factor(Species)),
+    Site    = droplevels(as.factor(Site)),
+    K_3     = droplevels(as.factor(K_3)),
+    # Create the Species x Cluster identifier for plotting
+    HH      = droplevels(as.factor(paste0(Species, "_", K_3)))
+  )
+
+# Filter low-sample HH groups if necessary (purgelimit = 6)
+purgelimit <- 5
+hh_counts  <- table(cb_clean$HH)
+valid_hh   <- names(hh_counts[hh_counts >= purgelimit])
+
+cb_plot <- cb_clean %>% 
+  filter(HH %in% valid_hh) %>% 
+  mutate(
+    Species = droplevels(Species),
+    K_3     = droplevels(K_3),
+    HH      = droplevels(HH)
+  )
+
+# Calculate sample sizes and median outcome per HH combination for ordering
+hh_summary <- cb_plot %>% 
+  group_by(HH) %>% 
+  summarize(N = n(), mnYY = median(YY, na.rm = TRUE), .groups = "drop") %>% 
+  arrange(desc(mnYY))
+
+cb_plot$HH    <- factor(cb_plot$HH, levels = hh_summary$HH)
+hh_summary$HH <- factor(hh_summary$HH, levels = hh_summary$HH)
+
+# ==============================================================================
+# 2. Fit Winning Model (k3ms) & Extract EMMs for Species x K_3 Combinations
+# ==============================================================================
+# Fit your exact winning model: YY ~ Species + K_3 + (1|Site)
+k3ms_plot_model <- lmer(YY ~ Species + K_3 + (1|Site), data = cb_plot, REML = FALSE)
+
+# Extract Estimated Marginal Means for the combined Species x K_3 grid
+emm_hh <- emmeans(k3ms_plot_model, ~ Species : K_3)
+
+# Filter out non-existent/empty species-cluster grid cells
+emm_hh_df <- as.data.frame(emm_hh) %>%
+  mutate(HH = paste0(Species, "_", K_3)) %>%
+  filter(HH %in% levels(cb_plot$HH)) %>%
+  mutate(HH = factor(HH, levels = hh_summary$HH))
+
+# Pairwise Tukey contrasts across combinations
+pairs_hh  <- pairs(emm_hh, adjust = "tukey")
+pairs_sum <- summary(pairs_hh)
+
+# Generate Compact Letter Display (CLD) safely
+pvals <- pairs_sum$p.value
+pvals[is.na(pvals)] <- 1 # Safeguard against missing contrast cells
+names(pvals) <- gsub(" - ", "-", pairs_sum$contrast)
+
+# Clean string names to match factor levels
+names(pvals) <- gsub("Species|K_3| ", "", names(pvals))
+
+letters_out <- multcompLetters(pvals)$Letters
+emm_hh_df$group <- letters_out[match(as.character(emm_hh_df$HH), names(letters_out))]
+
+# ==============================================================================
+# 3. Plot 1: ED50 across Species x K3 Cluster (HH)
+# ==============================================================================
+y_min <- min(cb_plot$YY, na.rm = TRUE) - 0.5
+y_max <- max(cb_plot$YY, na.rm = TRUE) + 0.5
+
+Hplot <- ggplot(cb_plot, aes(x = HH, y = YY)) +
+  # Raw data points colored by Species and shaped by Site
+  geom_jitter(aes(color = Species, shape = factor(Site)), width = 0.15, alpha = 0.7, size = 2) +
+  # Model EMMs & SE error bars from k3ms
+  geom_point(aes(x = HH, y = emmean), data = emm_hh_df, size = 3, color = "black") +
+  geom_errorbar(aes(x = HH, y = emmean, ymin = emmean - SE, ymax = emmean + SE), 
+                data = emm_hh_df, width = 0.2, color = "black") +
+  # Sample sizes at bottom
+  geom_text(aes(x = HH, y = y_min, label = paste0("n=", N)), data = hh_summary, size = 3) +
+  # Significance letters at top
+  geom_text(aes(x = HH, y = y_max, label = group), data = emm_hh_df, fontface = "bold", size = 3.5) +
+  scale_shape_manual(values = 1:8) +
+  theme_bw(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
+  ) +
+  labs(
+    title = paste0(Ychoice, " across Species x K3 Clusters (Model: k3ms)"),
+    x = "Species_Cluster (HH)",
+    y = expression(ED[50] ~ " (" * degree * C * ")"),
+    shape = "Site",
+    color = "Species"
+  )
+
+print(Hplot)
+
+# ==============================================================================
+# 4. Plot 2: Species Turnover Across ED50 Quantile Bins
+# ==============================================================================
+# cb_plot$YY_CUT <- cut(cb_plot$YY, breaks = 5)
+# 
+# Species_Turnover <- cb_plot %>%
+#   filter(!is.na(YY_CUT)) %>%
+#   group_by(Species, YY_CUT) %>%
+#   summarize(N = n(), .groups = "drop") %>%
+#   ggplot(aes(x = YY_CUT, y = N, fill = Species)) +
+#   geom_col(position = "fill") +
+#   theme_bw(base_size = 12) +
+#   theme(plot.title = element_text(face = "bold")) +
+#   labs(
+#     title = paste("Species Proportion across", Ychoice, "Quantiles"),
+#     x = paste(Ychoice, "Quantile Bins"),
+#     y = "Proportion of Samples"
+#   )
+# 
+# print(Species_Turnover)
+# 
+# # ==============================================================================
+# # 5. Combined Multi-Panel Figure
+# # ==============================================================================
+# combined_figure <- Hplot / Species_Turnover + 
+#   plot_layout(heights = c(2, 1))
+# 
+# print(combined_figure)
+```
+
+```{r}
+library(lme4)
+library(lmerTest)
+library(tidyverse)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+
+# ==============================================================================
+# 1. Define Explicit Ordering Vector & Data Prep
+# ==============================================================================
+KK_order <- c("ICRA_2", "AGLO_1", "AGLO_3", "AABR_1", "AABR_3", "AHYA_1")
+KK_names <- c(
+  "ICRA_2" = "ICRA", 
+  "AGLO_1" = "AGLO_1", 
+  "AGLO_3" = "AGLO_2", 
+  "AABR_1" = "AABR_1", 
+  "AABR_3" = "AABR_2", 
+  "AHYA_1" = "AHYA_1")
+
+species_labels <- c(
+  "AGLO" = "A. globiceps",
+  "AABR" = "A. abrotanoides",
+  "AHYA" = "A. hyacinthus",
+  "ICRA" = "I. crateriformis"
+)
+
+df_hh <- df_modeling %>%
+  filter(!is.na(slope), !is.na(Species), !is.na(Site), !is.na(K_3)) %>%
+  mutate(
+    HH = paste0(Species, "_", K_3),
+    HH = factor(HH, levels = KK_order),
+    Species = factor(Species, levels = species_order)
+  ) %>%
+  filter(!is.na(HH)) # Keep only the 6 target combinations
+
+# ==============================================================================
+# 2. Fit Model & Robustly Extract EMMs with Compact Letters
+# ==============================================================================
+# Fit model with HH as fixed factor
+m_hh <- lmer(slope ~ HH + (1|Site), data = df_hh, REML = FALSE)
+
+# Compute EMMs directly for HH
+emm_hh_obj <- emmeans(m_hh, ~ HH)
+
+# Generate Compact Letter Display
+cld_raw <- as.data.frame(multcomp::cld(emm_hh_obj, adjust = "tukey", Letters = letters))
+
+# Dynamically find the lower and upper confidence limit columns
+lcl_col <- names(cld_raw)[grep("LCL|lower.CL", names(cld_raw), ignore.case = TRUE)][1]
+ucl_col <- names(cld_raw)[grep("UCL|upper.CL", names(cld_raw), ignore.case = TRUE)][1]
+
+cld_hh <- cld_raw %>%
+  mutate(
+    HH      = factor(HH, levels = KK_order),
+    ymin    = .data[[lcl_col]],
+    ymax    = .data[[ucl_col]],
+    .group  = trimws(.group),
+    Species = factor(sub("_.*", "", HH), levels = species_order)
+  )
+
+# Sample size summary
+hh_summary <- df_hh %>%
+  group_by(HH) %>%
+  summarize(N = n(), .groups = "drop")
+
+KK_raw_order <- c("ICRA_2", "AGLO_1", "AGLO_3", "AABR_1", "AABR_3", "AHYA_1")
+
+# Lookup vector for plot labels
+KK_names <- c(
+  "ICRA_2" = "ICRA", 
+  "AGLO_1" = "AGLO_1", 
+  "AGLO_3" = "AGLO_2", 
+  "AABR_1" = "AABR_1", 
+  "AABR_3" = "AABR_2", 
+  "AHYA_1" = "AHYA_1"
+)
+
+# ==============================================================================
+# 3. Plot 1: Raw Data + EMMs + Significance Letters
+# ==============================================================================
+y_min <- min(df_hh$slope, na.rm = TRUE) - 0.4
+y_max <- max(cld_hh$ymax, max(df_hh$slope, na.rm = TRUE)) + 0.4
+
+plot_hh_raw <- ggplot() +
+  # Raw jittered points
+  geom_jitter(
+    data = df_hh,
+    aes(x = HH, y = slope, color = Species, fill = Species, shape = Site),
+    width = 0.18,
+    alpha = 0.60,
+    size = 2.8
+  ) +
+  # EMM points + Error bars (using standardized ymin and ymax)
+  geom_errorbar(
+    data = cld_hh,
+    aes(x = HH, ymin = ymin, ymax = ymax),
+    width = 0.12,
+    linewidth = 0.9,
+    color = "black"
+  ) +
+  geom_point(
+    data = cld_hh,
+    aes(x = HH, y = emmean),
+    size = 4,
+    color = "black"
+  ) +
+  # Sample sizes
+  geom_text(
+    data = hh_summary,
+    aes(x = HH, y = y_min, label = paste0("n=", N)),
+    size = 3.5,
+    color = "grey30"
+  ) +
+  # Significance letters
+  geom_text(
+    data = cld_hh,
+    aes(x = HH, y = ymax + 0.25, label = .group),
+    fontface = "bold",
+    size = 5.0,
+    color = "black"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold", angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold")
+  ) +
+  labs(
+    x = "Species_Cluster (HH)",
+    y = expression(Estimated~Marginal~Mean~slope~"("*degree*C*")"),
+    color = "Species",
+    fill  = "Species",
+    shape = "Site"
+  ) +
+  scale_color_manual(values = species_colors, limits = species_order) +
+  scale_fill_manual(values = species_colors, limits = species_order) +
+  scale_shape_manual(values = custom_shapes) +
+  #scale_x_discrete(limits = KK_order, labels  = KK_names)
+scale_x_discrete(
+    limits = KK_raw_order, # Raw level order in df
+    labels = KK_names      # New clean display names on plot
+  )
+print(plot_hh_raw)
+# 
+# # ==============================================================================
+# # 4. Plot 2: Pure Estimated Marginal Means Plot (Clean Model Predictions)
+# # ==============================================================================
+# plot_emmeans_only <- ggplot(cld_hh, aes(x = HH, y = emmean, color = Species, fill = Species)) +
+#   # 95% Confidence Interval Error Bars
+#   geom_errorbar(
+#     aes(ymin = ymin, ymax = ymax),
+#     width = 0.15,
+#     linewidth = 1.0
+#   ) +
+#   # Point estimates colored by Species
+#   geom_point(size = 4.5, shape = 21, stroke = 1.2, color = "black") +
+#   # Significance Letters above Error Bars
+#   geom_text(
+#     aes(y = ymax + 0.2, label = .group),
+#     fontface = "bold",
+#     size = 5.0,
+#     color = "black"
+#   ) +
+#   theme_classic(base_size = 14) +
+#   theme(
+#     axis.text.x = element_text(face = "bold", angle = 45, hjust = 1),
+#     plot.title = element_text(face = "bold"),
+#     legend.position = "right"
+#   ) +
+#   labs(
+#     title = expression(Model-Estimated~Marginal~Means~of~ED50),
+#     x = "Species_Cluster (HH)",
+#     y = expression(Estimated~Marginal~Mean~ED50~"("*degree*C*")"),
+#     color = "Species",
+#     fill  = "Species"
+#   ) +
+#   scale_color_manual(values = species_colors, limits = species_order) +
+#   scale_fill_manual(values = species_colors, limits = species_order) +
+#   scale_x_discrete(limits = KK_order)
+# 
+# print(plot_emmeans_only)
+```
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# 1. Define explicit display order
+KK_order <- c("ICRA", "AGLO_1", "AGLO_2", "AABR_1", "AABR_2", "AHYA_1")
+
+# 2. Recode HH and calculate summary stats (Raw Mean and SE)
+df_hh_plot <- df_modeling %>%
+  filter(!is.na(slope), !is.na(Species), !is.na(Site), !is.na(K_3)) %>%
+  mutate(
+    # Recode raw HH levels to clean display labels
+    HH_raw = paste0(Species, "_", K_3),
+    HH = case_match(
+      HH_raw,
+      "ICRA_2" ~ "ICRA",
+      "AGLO_1" ~ "AGLO_1",
+      "AGLO_3" ~ "AGLO_2",
+      "AABR_1" ~ "AABR_1",
+      "AABR_3" ~ "AABR_2",
+      "AHYA_1" ~ "AHYA_1",
+      .default = HH_raw
+    ),
+    HH = factor(HH, levels = KK_order),
+    Species = factor(Species, levels = species_order)
+  ) %>%
+  filter(!is.na(HH))
+
+# Descriptive summary table (Observed Mean & SE per HH group)
+hh_summary <- df_hh_plot %>%
+  group_by(HH, Species) %>%
+  summarize(
+    N      = n(),
+    mean_Y = mean(slope, na.rm = TRUE),
+    se_Y   = sd(slope, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+# 3. Plot Raw Data + Observed Group Means
+y_min <- min(df_hh_plot$slope, na.rm = TRUE) - 0.4
+
+plot_hh_raw_only <- ggplot() +
+  # Layer 1: Raw individual data points (color + fill mapped to Species)
+  geom_jitter(
+    data = df_hh_plot,
+    aes(x = HH, y = slope, color = Species, fill = Species, shape = Site),
+    width = 0.18,
+    alpha = 0.60,
+    size = 2.8
+  ) +
+  # Layer 2: Observed Group Mean + SE (Black crossbars)
+  geom_errorbar(
+    data = hh_summary,
+    aes(x = HH, ymin = mean_Y - se_Y, ymax = mean_Y + se_Y),
+    width = 0.15,
+    linewidth = 0.9,
+    color = "black"
+  ) +
+  geom_point(
+    data = hh_summary,
+    aes(x = HH, y = mean_Y),
+    size = 3.8,
+    shape = 21,
+    fill = "black",
+    color = "black"
+  ) +
+  # Layer 3: Sample size annotations (n = ...)
+  geom_text(
+    data = hh_summary,
+    aes(x = HH, y = y_min, label = paste0("n=", N)),
+    size = 3.5,
+    color = "grey30"
+  ) +
+  # Formatting & Scales
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(face = "bold", angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(
+    title = expression(Raw ~"("*ED[50]*")"~across~Species-Cluster~Combinations),
+    x = "Species_Cluster",
+    y = "slope",
+    color = "Species",
+    fill  = "Species",
+    shape = "Site"
+  ) +
+  scale_color_manual(values = species_colors, limits = species_order) +
+  scale_fill_manual(values = species_colors, limits = species_order) +
+  scale_shape_manual(values = custom_shapes) +
+  scale_x_discrete(limits = KK_order)
+
+print(plot_hh_raw_only)
+```
+
+
+```{r}

@@ -4,19 +4,34 @@ library(ggplot2)
 library(stringr)
 library(here)
 library(lubridate)
+library(readxl)
+load(here("Outputs", "photophys_preprocessed_data.RData"))
+dat<-read.csv(here ("Data/data_cbass.csv"))
+dat2<-read.csv(here ("Outputs/fvfm_color_df.csv"))
 
-dat<-read_excel(here ("Data/TUT_CBASS_colony_metadata.xlsx"))
+slope_lookup <- dat2 %>%
+  dplyr::select(SampleID_clean, Color_mean, Color_SD, Rel_Temperature)
+
+# Merge color_slope into dat
+dat <- dat %>%
+  left_join(slope_lookup, by = c("SampleID" = "SampleID_clean"))
+
+write.csv(dat, here("Outputs/cbass_archive.csv"))
+
+head(dat)
+head(meta_filtered)
 
 dat<-dat%>%
   filter_out(dat$`CBASS / Sophie`== "Sophie")
 
-dat2<-read.csv(here ("Data/TUT_CBASS_raw_PAM_fvfm.csv"))
+dat2<-read.csv(here ("Outputs/fvfm_color_df_for_archive.csv"))
 
 dat_clean <- dat %>%
   mutate(
     Bag_number = trimws(as.character(Bag_number)),
     Species    = trimws(tolower(as.character(Species)))
-  )
+  )%>%
+  dplyr::select(-Site)
 
 dat2_clean <- dat2 %>%
   mutate(
@@ -25,15 +40,15 @@ dat2_clean <- dat2 %>%
   )
 
 
-dat_clean <- dat %>%
+dat_clean <- dat_clean %>%
   mutate(Date = ymd(Date))
 
-dat2_clean <- dat2 %>%
+dat2_clean <- dat2_clean %>%
   mutate(Date = ymd(Date))
 
 dat3 <- inner_join(
-  dat, 
-  dat2, 
+  dat_clean, 
+  dat2_clean, 
   by = c("Date", "Bag_number", "Species")
 )
 

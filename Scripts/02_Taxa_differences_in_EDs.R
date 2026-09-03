@@ -19,20 +19,16 @@ library(here)
 library(multcomp)
 
 rm(list = ls())
-custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
+#custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
+custom_shapes <- c(16, 15, 17, 18, 8, 11, 9, 10)
 species_colors <- c(
   "AABR" = "#046E8F", 
-  "AGLO" = "lightgreen", 
+  #"AGLO" = "lightgreen",  "#5B8A72", "#2A9D8F", "#4E9F3D", 
+  "AGLO" = "#4E9F3D", 
   "AHYA" = "#D44D5C",
   "ICRA" = "#462255"  
 )
-
-species_colors <- c(
-  "AABR" = "#0077B6",  # Vibrant Deep Blue
-  "AGLO" = "#52B788",  # Light Mint / Sage Green
-  "AHYA" = "#9E2A2B",  # Dark Crimson Red
-  "ICRA" = "#E0A96D"   # Warm Gold / Light Ochre (replaces dark purple)
-)
+species_order <- c("ICRA", "AGLO", "AABR", "AHYA")
 
 species_labels <- c(
   "AGLO" = "A. globiceps",
@@ -50,12 +46,12 @@ EDdf <- read.csv(here("Data", "EDsdf_all_ramps.csv")) %>%
 #add decline width
 EDdf <- EDdf %>% mutate(DW = ED95 - ED5)
 
-#supplemental table 
-write.csv(
-  EDdf,
-  paste0("ED_Supplemental_table.csv"),
-  row.names = FALSE
-)
+# #supplemental table 
+# write.csv(
+#   EDdf,
+#   paste0("ED_Supplemental_table.csv"),
+#   row.names = FALSE
+# )
 
 
 #long format 
@@ -65,7 +61,7 @@ ED_long <- EDdf %>%
     names_to = "ED_level",
     values_to = "ED_value"
   ) %>%
-  mutate(Species = factor(Species, levels = c("AABR", "AHYA", "AGLO", "ICRA")))
+  mutate(Species = factor(Species, levels = c(species_order)))
 
 
 #stats: does ED-value differ among species; mixed model for each ED level-------------
@@ -75,6 +71,9 @@ ED5_df  <- filter(ED_long, ED_level == "ED5")
 ED50_df <- filter(ED_long, ED_level == "ED50")
 ED95_df <- filter(ED_long, ED_level == "ED95")
 ED_DW_df <-filter(ED_long, ED_level == "DW")
+
+ED50_df <- ED50_df %>%
+  mutate(Species = factor(Species, levels = species_order))
 
 #evaluate parametric assumptions
 #Shapiro-Wilk Normality
@@ -160,9 +159,10 @@ species_emms <- emmeans(m_ED50, ~ Species)
 species_pairs <- pairs(species_emms)
 print(species_pairs)
 species_letters <- cld(species_emms, Letters = letters, adjust = "tukey")
+
 print(species_letters)
 # residual diagnostics
-par(mfrow = c(1,2))
+par(mar = c(4, 4, 2, 1))
 plot(resid(m_ED50) ~ fitted(m_ED50))
 qqnorm(resid(m_ED50))
 qqline(resid(m_ED50))
@@ -189,79 +189,79 @@ site_summary <- ED_long %>%
 
 
 #boxplot
-g1 <- ggplot(ED_long, aes(x = Species, y = ED_value, fill = Species)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
-  geom_jitter(aes(color = Species), width = 0.15, alpha = 0.5, size = 1, show.legend = FALSE) +
-  facet_wrap(~ ED_level, scales = "free_y") +
-  theme_classic(base_size = 14) +
-  labs(
-    x = "Species",
-    y = expression(paste("Temperature (", degree, "C)")),
-   # title = "CBASS-Derived Thermal Thresholds",
-   # subtitle = "American Samoa"
-  ) +
-  theme(
-    strip.text = element_text(face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  ) +
-  theme(legend.position = "none")+
-  scale_color_manual(values = species_colors) +
-  scale_fill_manual(values = species_colors)+ 
-  scale_x_discrete(labels = species_labels) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
-
-g1
-
-#Mean 
-g2 <- ggplot(ED_long, aes(x = Species, y = ED_value)) +
-geom_jitter(aes(color = Species),width = 0.15, alpha = 0.4, size = 1, show.legend = FALSE) +
-  
-  
-  # geom_errorbar(data = ED_summary,
-  #               aes(x = Species,
-  #                   ymin = Mean - SE,
-  #                   ymax = Mean + SE),
-  #               width = 0.2,
-  #               size = 0.8,
-  #               inherit.aes = FALSE) +
-  geom_errorbar(
-    data = ED_summary,
-    aes(
-      x = Species,
-      ymin = CI_lower,
-      ymax = CI_upper
-    ),
-    width = 0.2,
-    linewidth = 0.8,
-    inherit.aes = FALSE
-  ) +
-  geom_point(data = ED_summary,
-             aes(x = Species, y = Mean, fill = Species),
-             shape = 21,
-             color = "black",
-             size = 2,
-             stroke = 0.8,
-             inherit.aes = FALSE) +
-  
-  facet_wrap(~ ED_level, scales = "free_y") +
-  theme_classic(base_size = 14) +
-  theme(
-    legend.position = "none",
-    strip.text = element_text(face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  ) +
-  labs(
-    x = "Species",
-    y = expression(paste("Temperature (", degree, "C)")),
-    #title = "CBASS-Derived Thermal Thresholds",
-    #subtitle = "American Samoa"
-  )+
-  scale_color_manual(values = species_colors) +
-  scale_fill_manual(values = species_colors)+ 
-  scale_x_discrete(labels = species_labels) +
-  theme(axis.text.x = element_text(angle = 30, hjust = 1, face = "italic"))
-
-g2
+# g1 <- ggplot(ED_long, aes(x = Species, y = ED_value, fill = Species)) +
+#   geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+#   geom_jitter(aes(color = Species), width = 0.15, alpha = 0.5, size = 1, show.legend = FALSE) +
+#   facet_wrap(~ ED_level, scales = "free_y") +
+#   theme_classic(base_size = 14) +
+#   labs(
+#     x = "Species",
+#     y = expression(paste("Temperature (", degree, "C)")),
+#    # title = "CBASS-Derived Thermal Thresholds",
+#    # subtitle = "American Samoa"
+#   ) +
+#   theme(
+#     strip.text = element_text(face = "bold"),
+#     axis.text.x = element_text(angle = 45, hjust = 1)
+#   ) +
+#   theme(legend.position = "none")+
+#   scale_color_manual(values = species_colors) +
+#   scale_fill_manual(values = species_colors)+ 
+#   scale_x_discrete(labels = species_labels) +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
+# 
+# g1
+# 
+# #Mean 
+# g2 <- ggplot(ED_long, aes(x = Species, y = ED_value)) +
+# geom_jitter(aes(color = Species),width = 0.15, alpha = 0.4, size = 1, show.legend = FALSE) +
+#   
+#   
+#   # geom_errorbar(data = ED_summary,
+#   #               aes(x = Species,
+#   #                   ymin = Mean - SE,
+#   #                   ymax = Mean + SE),
+#   #               width = 0.2,
+#   #               size = 0.8,
+#   #               inherit.aes = FALSE) +
+#   geom_errorbar(
+#     data = ED_summary,
+#     aes(
+#       x = Species,
+#       ymin = CI_lower,
+#       ymax = CI_upper
+#     ),
+#     width = 0.2,
+#     linewidth = 0.8,
+#     inherit.aes = FALSE
+#   ) +
+#   geom_point(data = ED_summary,
+#              aes(x = Species, y = Mean, fill = Species),
+#              shape = 21,
+#              color = "black",
+#              size = 2,
+#              stroke = 0.8,
+#              inherit.aes = FALSE) +
+#   
+#   facet_wrap(~ ED_level, scales = "free_y") +
+#   theme_classic(base_size = 14) +
+#   theme(
+#     legend.position = "none",
+#     strip.text = element_text(face = "bold"),
+#     axis.text.x = element_text(angle = 45, hjust = 1)
+#   ) +
+#   labs(
+#     x = "Species",
+#     y = expression(paste("Temperature (", degree, "C)")),
+#     #title = "CBASS-Derived Thermal Thresholds",
+#     #subtitle = "American Samoa"
+#   )+
+#   scale_color_manual(values = species_colors) +
+#   scale_fill_manual(values = species_colors)+ 
+#   scale_x_discrete(labels = species_labels) +
+#   theme(axis.text.x = element_text(angle = 30, hjust = 1, face = "italic"))
+# 
+# g2
 
 
 #ggsave(filename = here ("Plots", "All_sites_boxplot.pdf"), plot = g1,  width = 16, height = 9, device = "pdf")
@@ -280,62 +280,172 @@ cld_df <- data.frame(
 ED50_summary <- ED50_summary %>%
   left_join(cld_df, by = "Species")
 
+# Publication-Ready ED50 Plot (g3)
+# Publication-Ready ED50 Plot (g3)
 g3 <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
-  geom_jitter(aes(color = Species),width = 0.1, alpha = 0.3, size = 2, show.legend = FALSE) +
-  geom_point(data = ED50_summary,
-             aes(x = Species, y = Mean, color = Species),
-             size = 7,
-             inherit.aes = FALSE) +
-  
-  # geom_errorbar(data = ED50_summary,
-  #               aes(x = Species,
-  #                   ymin = Mean - SE,
-  #                   ymax = Mean + SE),
-  #               width = 0.2,
-  #               size = 1,
-  #               inherit.aes = FALSE) +
+  # Individual data points
+  geom_jitter(
+    aes(color = Species, , shape = as.factor(Site)),
+    width = 0.12, 
+    alpha = 0.4, 
+    size = 2.5, 
+    show.legend = FALSE
+  ) +
+  # Mean point indicator
+  geom_point(
+    data = ED50_summary,
+    aes(x = Species, y = Mean),
+    size = 5,
+    inherit.aes = FALSE,
+    show.legend = FALSE
+  ) +
+  # 95% Confidence Interval Error Bars
   geom_errorbar(
     data = ED50_summary,
-    aes(
-      x = Species,
-      ymin = CI_lower,
-      ymax = CI_upper
-    ),
-    width = 0.2,
+    aes(x = Species, ymin = CI_lower, ymax = CI_upper),
+    width = 0.15,
     linewidth = 0.8,
+    color = "black",
     inherit.aes = FALSE
   ) +
-  geom_text(data = ED50_summary,
-            aes(x = Species,
-                y = Mean + SE + 0.1,
-                label = .group),
-            nudge_x = 0.1,
-            hjust = 0,
-            size = 7,
-            fontface = "bold",
-            inherit.aes = FALSE)+
-  theme_classic(base_size = 14) +
-  theme(
-    legend.position = "none",
-    strip.text = element_text(face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1)
+  # Post-hoc significance letters positioned above CI_upper
+  geom_text(
+    data = ED50_summary,
+    aes(x = Species, y = CI_upper + 0.3, label = .group),
+    hjust = 0.5,
+    size = 7,
+    fontface = "bold",
+    color = "black",
+    inherit.aes = FALSE
   ) +
+  # Axis Labels
   labs(
     x = "Species",
-    y = expression(paste("ED50 (", degree, "C)")),
-   # title = "CBASS-Derived Thermal Thresholds",
-  )+
-  scale_color_manual(values = species_colors) +
-  scale_fill_manual(values = species_colors)+ 
-  scale_x_discrete(labels = species_labels) +
-  theme(axis.text.x = element_text(angle = 30, hjust = 1, face = "italic"))
+    y = expression("ED"[50] ~ " (°C)")
+  ) +
+  # Scales & Palettes
+  scale_color_manual(values = species_colors, limits = species_order) +
+  scale_fill_manual(values = species_colors, limits = species_order) + 
+  scale_x_discrete(labels = species_labels, limits = species_order) +
+  scale_shape_manual(values = custom_shapes) +
+  # Theme Customizations
+  theme_classic(base_size = 12, base_family = "sans") +
+  theme(
+    legend.position = "none",
+    axis.title = element_text(face = "bold", size = 13, color = "black"),
+    axis.text.y = element_text(size = 11, color = "black"),
+    axis.text.x = element_text(size = 11, color = "black", angle = 30, hjust = 1, face = "italic"),
+    axis.line = element_line(linewidth = 0.6, color = "black"),
+    axis.ticks = element_line(linewidth = 0.6, color = "black")
+  )
 
+# Save Vector PDF for Publication (Adobe Illustrator / Journal Submission ready)
+g4<- ggsave(
+  filename = here::here("Plots", "ED50_post-hocs.pdf"),
+  plot = g3,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 600,
+  device = cairo_pdf
+)
 
-g3
+# Save High-Resolution PNG (for presentations / previews)
+ggsave(
+  filename = here::here("Plots", "ED50_post-hocs.png"),
+  plot = g3,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 600
+)
 
+#plot emmeans
+ED50_emm_df <- as.data.frame(species_letters) %>%
+  dplyr::rename(
+    Mean = emmean,
+    CI_lower = lower.CL,
+    CI_upper = upper.CL,
+    .group = .group
+  ) %>%
+  dplyr::mutate(
+    .group = trimws(.group),
+    Species = factor(Species, levels = species_order)
+  )
 
-#ggsave(filename = here ("Plots", "ED50_post-hocs.pdf"), plot = g3,  width = 16, height = 9, device = "pdf")
+# Publication-Ready ED50 Emmeans Plot (g3)
+g4<- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
+  # Individual raw data points (jittered by Site shape)
+  geom_jitter(
+    aes(color = Species, shape = as.factor(Site)),
+    width = 0.12, 
+    alpha = 0.5, 
+    size = 3, 
+    show.legend = TRUE
+  ) +
+  # Model Estimated Marginal Means (emmean)
+  geom_point(
+    data = ED50_emm_df,
+    aes(x = Species, y = Mean),
+    size = 5,
+    inherit.aes = FALSE,
+    show.legend = FALSE
+  ) +
+  # 95% Confidence Intervals from lmer emmeans model
+  geom_errorbar(
+    data = ED50_emm_df,
+    aes(x = Species, ymin = CI_lower, ymax = CI_upper),
+    width = 0.15,
+    linewidth = 0.8,
+    color = "black",
+    inherit.aes = FALSE
+  ) +
+  # Post-hoc Tukey significance letters positioned above upper CI limit
+  geom_text(
+    data = ED50_emm_df,
+    aes(x = Species, y = CI_upper + 0.5, label = .group),
+    hjust = 0.5,
+    size = 6,
+    fontface = "bold",
+    color = "black",
+    inherit.aes = FALSE
+  ) +
+  # Axis Labels
+  labs(
+    x = "Species",
+    y = expression("Emmeans ED"[50] ~ " (°C)")
+  ) +
+  # Aesthetics & Scales
+  scale_color_manual(values = species_colors, limits = species_order) +
+  scale_fill_manual(values = species_colors, limits = species_order) + 
+  scale_x_discrete(labels = species_labels, limits = species_order) +
+  scale_shape_manual(values = custom_shapes) +
+  # Publication Theme
+  theme_classic(base_size = 12, base_family = "sans") +
+  theme(
+    legend.position = "right",
+    axis.title = element_text(face = "bold", size = 13, color = "black"),
+    axis.text.y = element_text(size = 11, color = "black"),
+    axis.text.x = element_text(size = 11, color = "black", angle = 30, hjust = 1, face = "italic"),
+    axis.line = element_line(linewidth = 0.6, color = "black"),
+    axis.ticks = element_line(linewidth = 0.6, color = "black"),
+    # Reduce outer plot margin padding
+    plot.margin = margin(t = 10, r = 10, b = 5, l = 10, unit = "pt")+
+    labs(  
+      color = "Species",
+      fill  = "Species",
+      shape = "Site")
+  )
 
+g4
+ggsave(
+  filename = here::here("Plots", "ED50_emmeans.png"),
+  plot = g4,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 600
+)
 
 #Q1B.  How important are site level differences to our ESA taxa?---------------------------
 
@@ -361,3 +471,5 @@ site_prop
 
 library(performance)
 r2_nakagawa(mod_esa)
+
+

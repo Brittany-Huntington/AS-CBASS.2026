@@ -36,18 +36,17 @@ K_names <- c(
   "3" = "Acropora_2")
 K_names_order<- c("ICRA", "Acropora_1", "Acropora_2")
 
-meta_filtered<-readRDS(here("Outputs", "master_cluster_metadata_K2_K15.rds"))
-
-df_modeling <- meta_filtered %>%
+annot_master<-read.csv(here("Outputs", "ed50_colorslope_cluster_metadata.csv")) #from phenotype_heatmap script
+df_modeling <- annot_master %>%
   mutate(across(c(starts_with("K_"), Site), as.factor)) %>%
-  filter(!is.na(ED50), !is.na(Site))
+  filter(!is.na(slope), !is.na(Site))
 
-df_modeling%>%ggplot(aes(x=K_4,y=ED50))+geom_violin()+geom_jitter()
+df_modeling%>%ggplot(aes(x=K_3,y=slope))+geom_violin()+geom_jitter()
 
 #tom
-k3m=lmer(ED50~K_3+Species+(1|Site),data=df_modeling)
-mod <- lm(ED50 ~ factor(Site) + Species, data = df_modeling)
-mod_interaction <- lm(ED50 ~ factor(Site) * Species, data = df_modeling)
+k3m=lmer(slope~K_3+Species+(1|Site),data=df_modeling)
+mod <- lm(slope ~ factor(Site) + Species, data = df_modeling)
+mod_interaction <- lm(slope ~ factor(Site) * Species, data = df_modeling)
 
 summary(k3m)
 df_modeling_P=df_modeling
@@ -76,7 +75,7 @@ df_modeling %>%
     shape = "Cluster (K_3)"
   )
 
-ggplot(df_modeling, aes(x = factor(Site), y = ED50, color = Species)) +
+ggplot(df_modeling, aes(x = factor(Site), y = slope, color = Species)) +
   # Add boxplots/violin to show raw distribution
   geom_boxplot(outlier.shape = NA, alpha = 0.2) +
   geom_jitter(aes(shape = factor(K_3)), width = 0.2, size = 2.5, alpha = 0.8) +
@@ -93,112 +92,6 @@ ggplot(df_modeling, aes(x = factor(Site), y = ED50, color = Species)) +
 
 
 ```{r}
-k4m=lmer(ED50~K_4+Species+(1|Site),data=df_modeling)
-summary(k4m)
- r2(k4m)
- emm
- 
- k3m=lmer(ED50~K_3+Species+(1|Site),data=df_modeling)
-summary(k3m)
- r2(k3m)
-  emm(k3m)
- 
- spp_m=lmer(ED50~Species+(1|Site),data=df_modeling)
- summary(spp_m)
- r2(spp_m)
- 
- k3m_ml  <- update(k3m, REML = FALSE)
-spp_ml  <- update(spp_m, REML = FALSE)
-
-anova(spp_ml, k3m_ml)
-
-#extract and plot Site Random Effects 
-site_re <- as.data.frame(ranef(k3m_ml, condVar = TRUE)) %>%
-  filter(grpvar == "Site") %>%
-  mutate(
-    Site = grp,
-    ymin = condval - 1.96 * condsd,
-    ymax = condval + 1.96 * condsd,
-    Site = reorder(Site, condval)
-  )
-
-
-ggplot(site_re, aes(x = Site, y = condval)) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.8) +
-  geom_pointrange(
-    aes(ymin = ymin, ymax = ymax),
-    size = 0.8,
-    linewidth = 0.8
-  ) +
-  scale_shape_manual(values = custom_shapes) +
-  coord_flip() +
-  labs(
-     x = "Site",
-    y ="Random intercept offset "
-  ) 
-
-
-table (df_modeling$K_3, df_modeling$Species)
-
-table<-df_modeling %>%
-  count(Site, Species, K_3) %>%
-  tidyr::pivot_wider(
-    names_from = K_3, 
-    values_from = n, 
-    values_fill = 0, 
-  ) %>%
-  arrange(as.numeric(as.character(Site)), Species)
-
-#plot
-k3_site_prop <- df_modeling %>%
-  count(Site, K_3) %>%
-  group_by(Site) %>%
-  mutate(Prop = n / sum(n))
-
-# stacked
-ggplot(k3_site_prop, aes(x = factor(Site), y = Prop, fill = factor(K_3))) +
-  geom_col(color = "black", linewidth = 0.3, width = 0.7) +
-  scale_y_continuous(labels = scales::percent_format(), expand = c(0, 0)) +
-  labs(
-    x = "Site",
-    y = "% of Samples")
-
-
-
-#fac by spp
-ggplot(df_modeling, aes(x = factor(Site), fill = factor(K_3))) +
-  geom_bar() +
-  facet_wrap(~ Species, scales = "free_x", nrow = 1) +
-
-  labs(
-    x = "Site",
-    y = "N")+
-  theme_bw(base_size = 12) +
-  theme(
-    legend.position = "bottom"
-  )
-
-library(emmeans)
-library(ggplot2)
-
-# Extract site-adjusted predicted ED50 for K_3 clusters
-k3_emm <- emmeans(k3m, ~ K_3) %>% as.data.frame()
-
-# Plot clean, site-adjusted ED50 by Photophysiological Cluster
-ggplot(k3_emm, aes(x = K_3, y = emmean)) +
-  geom_point(size = 3.5) +
-  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.15, linewidth = 0.8) +
-  labs(
-    x = "Photophysiological Cluster (K3)",
-    y = "Predicted ED50",
-    #y = expression(bold("Site-Adjusted " * ED[50] * " (°C)")),
-   # title = expression(bold("Marginal Effect of Photophysiology on " * ED[50]))
-  ) +
-  theme_classic(base_size = 12)
-```
-
-
-```{r}
 # =========================================================================
 # 1. Calculate Raw Summary Statistics (Mean, SE, SD, Median)
 # =========================================================================
@@ -206,9 +99,9 @@ raw_stats <- df_modeling %>%
   group_by(Site, Species) %>%
   summarise(
     n          = n(),
-    raw_mean   = mean(ED50, na.rm = TRUE),
-    raw_median = median(ED50, na.rm = TRUE),
-    sd         = sd(ED50, na.rm = TRUE),
+    raw_mean   = mean(slope, na.rm = TRUE),
+    raw_median = median(slope, na.rm = TRUE),
+    sd         = sd(slope, na.rm = TRUE),
     se         = sd / sqrt(n),
     # Error bars for SE
     lower_se   = raw_mean - se,
@@ -227,7 +120,7 @@ p_raw_summary <- ggplot() +
   # --- Background Raw Individual Data Points ---
   geom_jitter(
     data = df_modeling,
-    aes(x = Site, y = ED50, color = Species, shape=K_3),
+    aes(x = Site, y = slope, color = Species, shape=K_3),
     position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.55),
     alpha = 0.35,
     size = 2.0
@@ -285,11 +178,11 @@ emm_df <- emmeans(mod, ~ Species | Site) %>%
 # 3. Overlay Model Predictions on Raw Data
 ggplot() +
   # Raw data points (faded in background)
-  # geom_jitter(
-  #   data = df_modeling, 
-  #   aes(x = factor(Site), y = ED50, color = Species), 
-  #   width = 0.15, alpha = 0.3, size = 2
-  # ) +
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = factor(Site), y = slope, color = Species), 
+    width = 0.15, alpha = 0.3, size = 2
+  ) +
   # Model predicted means (large filled points)
   geom_point(
     data = emm_df, 
@@ -307,11 +200,11 @@ ggplot() +
   labs(
     title = "Model Predictions (EMMs) vs. Raw Data Points",
     subtitle = "Gap between points and faded raw data shows controlling adjustments",
-    x = "Site", y = "ED50"
+    x = "Site", y = "slope"
   )
 
-mod <- lm(ED50 ~ factor(Site) + Species, data = df_modeling)
-mod_interaction <- lm(ED50 ~ factor(Site) * Species, data = df_modeling)
+mod <- lm(slope ~ factor(Site) + Species, data = df_modeling)
+mod_interaction <- lm(slope ~ factor(Site) * Species, data = df_modeling)
 
 # Compare AIC / Likelihood Ratio Test
 anova(k3m, mod, mod_interaction)
@@ -324,7 +217,7 @@ emm_interaction <- emmeans(mod_interaction, ~ Species | Site) %>%
 ggplot() +
   geom_jitter(
     data = df_modeling, 
-    aes(x = factor(Site), y = ED50, color = Species), 
+    aes(x = factor(Site), y = slope, color = Species), 
     width = 0.12, alpha = 0.35, size = 2
   ) +
   geom_point(
@@ -342,22 +235,22 @@ ggplot() +
   labs(
     title = "Site × Species Interaction Model Predictions",
     #subtitle = "Predictions now align accurately with species-specific raw site distributions",
-    x = "Site", y = "ED50"
+    x = "Site", y = "slope"
   )
 
 ```
 
 ```{r}
 #models
-spp_m <- lmer(ED50 ~ Species + (1 | Site), data = df_modeling, REML = FALSE)
-k3_model <-lmer(ED50 ~ K_3 + (1 | Site), data = df_modeling, REML = FALSE)
-k4_model <-lmer(ED50 ~ K_4 + (1 | Site), data = df_modeling, REML = FALSE)
-k3ms <- lmer(ED50 ~ Species + K_3 + (1 | Site), data = df_modeling, REML = FALSE)
-k4ms <- lmer(ED50 ~ Species + K_4 + (1 | Site), data = df_modeling, REML = FALSE)
-k3msi <- lmer(ED50 ~ Species * K_3 + (1 | Site), data = df_modeling, REML = FALSE)
-k4msi <- lmer(ED50 ~ Species * K_4 + (1 | Site), data = df_modeling, REML = FALSE)
-k3_spp_random <- lmer(ED50 ~ K_3 + (1 | Site) + (1 | Species), data = df_modeling, REML = FALSE)
-k4_spp_random <- lmer(ED50 ~ K_4 + (1 | Site) + (1 | Species), data = df_modeling, REML = FALSE)
+spp_m <- lmer(slope ~ Species + (1 | Site), data = df_modeling, REML = FALSE)
+k3_model <-lmer(slope ~ K_3 + (1 | Site), data = df_modeling, REML = FALSE)
+k4_model <-lmer(slope ~ K_4 + (1 | Site), data = df_modeling, REML = FALSE)
+k3ms <- lmer(slope ~ Species + K_3 + (1 | Site), data = df_modeling, REML = FALSE)
+k4ms <- lmer(slope ~ Species + K_4 + (1 | Site), data = df_modeling, REML = FALSE)
+k3msi <- lmer(slope ~ Species * K_3 + (1 | Site), data = df_modeling, REML = FALSE)
+k4msi <- lmer(slope ~ Species * K_4 + (1 | Site), data = df_modeling, REML = FALSE)
+k3_spp_random <- lmer(slope ~ K_3 + (1 | Site) + (1 | Species), data = df_modeling, REML = FALSE)
+k4_spp_random <- lmer(slope ~ K_4 + (1 | Site) + (1 | Species), data = df_modeling, REML = FALSE)
 
 
 all_models <- list(
@@ -460,13 +353,13 @@ cld_clusters <- cld_clusters %>%
 # 4. Generate Plot (both layers now use identical K_3_labeled factors)
 plot_k3ms <- ggplot() +
   # Layer A: Raw jittered points
-  # geom_jitter(
-  #   data = df_modeling, 
-  #   aes(x = K_3_labeled, y = ED50, color = Species, fill = Species, shape = Site),
-  #   width = 0.18, 
-  #   alpha = 0.55, 
-  #   size = 2.5
-  # ) +
+  geom_jitter(
+    data = df_modeling, 
+    aes(x = K_3_labeled, y = slope, color = Species, fill = Species, shape = Site),
+    width = 0.18, 
+    alpha = 0.55, 
+    size = 2.5
+  ) +
   # Layer B: Model Estimated Marginal Means (Black points + Error bars)
   geom_errorbar(
     data = cld_clusters,
@@ -478,7 +371,7 @@ plot_k3ms <- ggplot() +
   geom_point(
     data = cld_clusters,
     aes(x = K_3_labeled, y = emmean),
-    size = 4,
+    size = 4, 
     color = "black"
   ) +
   # Layer C: Statistical significance letters (CLD)
@@ -498,7 +391,7 @@ plot_k3ms <- ggplot() +
   ) +
   labs(
     x = "Photophysiological Cluster",
-    y = expression(Estimated~Marginal~Mean~ED50~"("*degree*C*")"),
+    y = slope,
     color = "Species",
     fill  = "Species",
     shape = "Site"
@@ -1046,57 +939,57 @@ print(Species_Turnover)
 
 
 ```{r}
-spp_m <- lmer(ED50 ~ Species + (1|Site), data = df_modeling)
+#m_ED50 <- lmer(ED_value ~ Species + (1|Site), data = ED50_df)
 summary(spp_m)
 anova(spp_m)
-species_emms <- emmeans(spp_m, ~ Species)
+species_emms <- emmeans(spp_m, ~ species)
 species_letters <- cld(species_emms, Letters = letters, adjust = "tukey")
 print(species_letters)
 
 #does K explain ED50 variation
-k2m <- lmer(ED50 ~ K_2 + (1 | Site), data = df_modeling, REML = TRUE)
-k3m <- lmer(ED50 ~ K_3 + (1 | Site), data = df_modeling, REML = TRUE)
-k4m <- lmer(ED50 ~ K_4 + (1 | Site), data = df_modeling, REML = TRUE)
-k5m <- lmer(ED50 ~ K_5 + (1 | Site), data = df_modeling, REML = TRUE)
-k6m <- lmer(ED50 ~ K_6 + (1 | Site), data = df_modeling, REML = TRUE)
-k7m <- lmer(ED50 ~ K_7 + (1 | Site), data = df_modeling, REML = TRUE)
-k8m <- lmer(ED50 ~ K_8 + (1 | Site), data = df_modeling, REML = TRUE)
-k9m <- lmer(ED50 ~ K_9 + (1 | Site), data = df_modeling, REML = TRUE)
-k10m <- lmer(ED50 ~ K_10 + (1 | Site), data = df_modeling, REML = TRUE)
-k11m <- lmer(ED50 ~ K_11 + (1 | Site), data = df_modeling, REML = TRUE)
-k12m <- lmer(ED50 ~ K_12 + (1 | Site), data = df_modeling, REML = TRUE)
-k13m <- lmer(ED50 ~ K_13 + (1 | Site), data = df_modeling, REML = TRUE)
-k14m <- lmer(ED50 ~ K_14 + (1 | Site), data = df_modeling, REML = TRUE)
+k2m <- lmer(ED50 ~ K_2 + (1 | site), data = df_modeling, REML = FALSE)
+k3m <- lmer(ED50 ~ K_3 + (1 | site), data = df_modeling, REML = FALSE)
+k4m <- lmer(ED50 ~ K_4 + (1 | site), data = df_modeling, REML = FALSE)
+k5m <- lmer(ED50 ~ K_5 + (1 | site), data = df_modeling, REML = FALSE)
+k6m <- lmer(ED50 ~ K_6 + (1 | site), data = df_modeling, REML = FALSE)
+k7m <- lmer(ED50 ~ K_7 + (1 | site), data = df_modeling, REML = FALSE)
+k8m <- lmer(ED50 ~ K_8 + (1 | site), data = df_modeling, REML = FALSE)
+k9m <- lmer(ED50 ~ K_9 + (1 | site), data = df_modeling, REML = FALSE)
+k10m <- lmer(ED50 ~ K_10 + (1 | site), data = df_modeling, REML = FALSE)
+k11m <- lmer(ED50 ~ K_11 + (1 | site), data = df_modeling, REML = FALSE)
+k12m <- lmer(ED50 ~ K_12 + (1 | site), data = df_modeling, REML = FALSE)
+k13m <- lmer(ED50 ~ K_13 + (1 | site), data = df_modeling, REML = FALSE)
+k14m <- lmer(ED50 ~ K_14 + (1 | site), data = df_modeling, REML = FALSE)
 
 #does adding species make model better (even though some confounded spp, site, and group)
-k2ms <- lmer(ED50 ~ Species + K_2 + (1 | Site), data = df_modeling, REML = TRUE)
-k3ms <- lmer(ED50 ~ Species + K_3 + (1 | Site), data = df_modeling, REML = TRUE)
-k4ms <- lmer(ED50 ~ Species + K_4 + (1 | Site), data = df_modeling, REML = TRUE)
-km5s <- lmer(ED50 ~ Species + K_5 + (1 | Site), data = df_modeling, REML = TRUE)
-k6ms <- lmer(ED50 ~ Species + K_6 + (1 | Site), data = df_modeling, REML = TRUE)
-k7ms <- lmer(ED50 ~ Species + K_7 + (1 | Site), data = df_modeling, REML = TRUE)
-k8ms <- lmer(ED50 ~ Species + K_8 + (1 | Site), data = df_modeling, REML = TRUE)
-k9ms <- lmer(ED50 ~ Species + K_9 + (1 | Site), data = df_modeling, REML = TRUE)
-k10ms <- lmer(ED50 ~ Species + K_10 + (1 | Site), data = df_modeling, REML = TRUE)
-k11ms <- lmer(ED50 ~ Species + K_11 + (1 | Site), data = df_modeling, REML = TRUE)
-k12ms <- lmer(ED50 ~ Species + K_12 + (1 | Site), data = df_modeling, REML = TRUE)
-k13ms <- lmer(ED50 ~ Species + K_13 + (1 | Site), data = df_modeling, REML = TRUE)
-k14ms <- lmer(ED50 ~ Species + K_14 + (1 | Site), data = df_modeling, REML = TRUE)
+k2ms <- lmer(ED50 ~ species + K_2 + (1 | site), data = df_modeling, REML = TRUE)
+k3ms <- lmer(ED50 ~ species + K_3 + (1 | site), data = df_modeling, REML = TRUE)
+k4ms <- lmer(ED50 ~ species + K_4 + (1 | site), data = df_modeling, REML = TRUE)
+km5s <- lmer(ED50 ~ species + K_5 + (1 | site), data = df_modeling, REML = TRUE)
+k6ms <- lmer(ED50 ~ species + K_6 + (1 | site), data = df_modeling, REML = TRUE)
+k7ms <- lmer(ED50 ~ species + K_7 + (1 | site), data = df_modeling, REML = TRUE)
+k8ms <- lmer(ED50 ~ species + K_8 + (1 | site), data = df_modeling, REML = TRUE)
+k9ms <- lmer(ED50 ~ species + K_9 + (1 | site), data = df_modeling, REML = TRUE)
+k10ms <- lmer(ED50 ~ species + K_10 + (1 | site), data = df_modeling, REML = TRUE)
+k11ms <- lmer(ED50 ~ species + K_11 + (1 | site), data = df_modeling, REML = TRUE)
+k12ms <- lmer(ED50 ~ species + K_12 + (1 | site), data = df_modeling, REML = TRUE)
+k13ms <- lmer(ED50 ~ species + K_13 + (1 | site), data = df_modeling, REML = TRUE)
+k14ms <- lmer(ED50 ~ species + K_14 + (1 | site), data = df_modeling, REML = TRUE)
 
 #interaction
-k3msi <- lmer(ED50 ~ Species * K_3 + (1 | Site), data = df_modeling, REML = TRUE)
-k4msi <- lmer(ED50 ~ Species * K_4 + (1 | Site), data = df_modeling, REML = TRUE)
-k5msi <- lmer(ED50 ~ Species * K_5 + (1 | Site), data = df_modeling, REML = TRUE)
-k6msi <- lmer(ED50 ~ Species * K_6 + (1 | Site), data = df_modeling, REML = TRUE)
-k7msi <- lmer(ED50 ~ Species * K_7 + (1 | Site), data = df_modeling, REML = TRUE)
-k8msi <- lmer(ED50 ~ Species * K_8 + (1 | Site), data = df_modeling, REML = TRUE)
-k9msi <- lmer(ED50 ~ Species * K_9 + (1 | Site), data = df_modeling, REML = TRUE)
-k10msi <- lmer(ED50 ~ Species * K_10 + (1 | Site), data = df_modeling, REML = TRUE)
-k11msi <- lmer(ED50 ~ Species * K_11 + (1 | Site), data = df_modeling, REML = TRUE)
-k12msi <- lmer(ED50 ~ Species * K_12 + (1 | Site), data = df_modeling, REML = TRUE)
-k13msi <- lmer(ED50 ~ Species * K_13 + (1 | Site), data = df_modeling, REML = TRUE)
-k14msi <- lmer(ED50 ~ Species * K_14 + (1 | Site), data = df_modeling, REML = TRUE)
-k15msi <- lmer(ED50 ~ Species * K_15 + (1 | Site), data = df_modeling, REML = TRUE)
+k3msi <- lmer(ED50 ~ species * K_3 + (1 | site), data = df_modeling, REML = TRUE)
+k4msi <- lmer(ED50 ~ species * K_4 + (1 | site), data = df_modeling, REML = TRUE)
+k5msi <- lmer(ED50 ~ species * K_5 + (1 | site), data = df_modeling, REML = TRUE)
+k6msi <- lmer(ED50 ~ species * K_6 + (1 | site), data = df_modeling, REML = TRUE)
+k7msi <- lmer(ED50 ~ species * K_7 + (1 | site), data = df_modeling, REML = TRUE)
+k8msi <- lmer(ED50 ~ species * K_8 + (1 | site), data = df_modeling, REML = TRUE)
+k9msi <- lmer(ED50 ~ species * K_9 + (1 | site), data = df_modeling, REML = TRUE)
+k10msi <- lmer(ED50 ~ species * K_10 + (1 | site), data = df_modeling, REML = TRUE)
+k11msi <- lmer(ED50 ~ species * K_11 + (1 | site), data = df_modeling, REML = TRUE)
+k12msi <- lmer(ED50 ~ species * K_12 + (1 | site), data = df_modeling, REML = TRUE)
+k13msi <- lmer(ED50 ~ species * K_13 + (1 | site), data = df_modeling, REML = TRUE)
+k14msi <- lmer(ED50 ~ species * K_14 + (1 | site), data = df_modeling, REML = TRUE)
+k15msi <- lmer(ED50 ~ species * K_15 + (1 | site), data = df_modeling, REML = TRUE)
 
 model_comparison <- compare_performance(
   spp_m,
@@ -1152,7 +1045,7 @@ master_model_table <- imap_dfr(all_models, function(model_obj, model_name) {
 print(master_model_table %>% arrange(AIC))
 
 
-write.csv(master_model_table, here("Outputs", "master_model_table.csv"))
+#write.csv(master_model_table, here("Data", "master_model_table.csv"))
 
 top_models <- list(
   "K3_plus_Spp"  = k3ms,
@@ -1198,7 +1091,7 @@ print(var_table)
 
 emmeans_table <- imap_dfr(top_models, function(m, model_name) {
   # Calculate post-hoc differences between your species lines
-  em <- emmeans(m, ~ Species)
+  em <- emmeans(m, ~ species)
   
   tidy(pairs(em)) %>%
     mutate(Model = model_name)

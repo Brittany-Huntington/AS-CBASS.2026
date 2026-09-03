@@ -55,7 +55,7 @@ create_matching_key <- function(df) {
       rep_num = str_match(sample_file, "^t\\d+_[a-zA-Z]+(\\d+)")[,2],
       GroupingProperty = paste(tp_num, geno_name, rep_num, sep = "_")
     ) %>%
-    select(-tp_num, -geno_name, -rep_num)
+    dplyr::select(-tp_num, -geno_name, -rep_num)
 }
 
 pp_99 <- create_matching_key(pp_99)
@@ -66,7 +66,7 @@ pp_90 <- create_matching_key(pp_90)
 #building the phenotypic dendrograms and cutting them into 4 distinct clusters-------
 #transpose df so coral genotypes are columns
 prep_for_pvclust <- function(df) {
-  traits_only <- df[, !(names(df) %in% c("sample_file", "timepoint", "genotype"))]
+  traits_only <- df[, !(names(df) %in% c("sample_file", "timepoint", "genotype", "GroupingProperty"))]
   pv_matrix <- t(traits_only)
   colnames(pv_matrix) <- df$sample_file
   return(as.data.frame(pv_matrix))

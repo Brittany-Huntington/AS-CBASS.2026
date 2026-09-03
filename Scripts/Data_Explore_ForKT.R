@@ -10,12 +10,12 @@ library(multcompView)
 r2.mar=function(mod){r2(mod)[2]}
 r2.con=function(mod){r2(mod)[1]}
 
-cb=read.csv(here("Outputs", "summarized_data.csv"))
+cb=read.csv(here("Outputs", "ed50_colorslope_cluster_metadata.csv"))
 cb$ED50_CUT=cut(cb$ED50,breaks = 5)
 cb$Paling_CUT=cut(cb$slope,breaks = 5)
 ############################################################
-Ychoice="ED50"
-PURGEHH=TRUE
+Ychoice="slope"
+PURGEHH=FALSE
 purgelimit=6
 eval(parse(text=paste0("cb$YY=cb$",Ychoice)))
 orgcb=cb

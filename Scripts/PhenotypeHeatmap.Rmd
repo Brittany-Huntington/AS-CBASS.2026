@@ -2,47 +2,33 @@
 library(pheatmap)
 library(dplyr)
 library(here)
-load(here("Data","cbb_AS26_expt_1000bs_updated.RData"))
+library(stringr)
+#load(here("Data","cbb_AS26_expt_1000bs_updated.RData"))
+load(file = here("Data", "cbb_AS26_expt_1000bs_updatedw9icra3.RData"))
 load(here("Data", "Alls.cor_clean.RData"))
+cluster_summary<-read.csv(here("Outputs", "ed50_colorslope_cluster_metadata.csv"))
 seqID<-read.csv(here("Data", "TUT_seq.csv"))
-ed50_data<-read.csv(here("Data", "edsdf-all.csv"))%>%
-dplyr::rename(SampleID_clean = GroupingProperty) %>% 
-  mutate(SampleID_clean = paste0("t", tolower(trimws(SampleID_clean))),
-    # 2. Remove the second underscore specifically
-    SampleID_clean = sub("^([^_]*_[^_]*)_", "\\1", SampleID_clean)
-  ) %>%
-  dplyr::select(SampleID_clean, ED50)
 
-cluster_summary<-read.csv(here("Data", "expt_data_clustered.csv"))
-  
-#add ed50 data
-annot_master <- cluster_summary %>%
-  mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
-  left_join(ed50_data, by = "SampleID_clean")
-write.csv(annot_master, here("Data", "cluster_and_ed50_data.csv"))
 
 #make names right in seqid
-cleaned_names <- seqID$Name %>%
-  str_replace_all("algo", "aglo") %>%
-  # Extract: t + digits + species + ID number, ignoring any internal underscores
-  # Group 1 = time number, Group 2 = 4-letter species, Group 3 = individual number
-  str_replace_all("^t(\\d+)_?([a-z]+)_?(\\d+).*", "t\\1_\\2\\3")
-
-# 2. Assign it back to a new column in your dataframe
-seqID$SampleID_clean <- cleaned_names
-
-# Let's verify how a few turned out:
-head(seqID$SampleID_clean)
+# cleaned_names <- seqID$Name %>%
+#   str_replace_all("algo", "aglo") %>%
+#   str_replace_all("^t(\\d+)_?([a-z]+)_?(\\d+).*", "t\\1_\\2\\3")%>%
+#   str_to_upper()
+# 
+# seqID$SampleID_clean <- cleaned_names
+# head(seqID$SampleID_clean)
+# 
+# seqID_clean <- seqID %>% distinct(SampleID_clean, .keep_all = TRUE)
   
- annot_master <- annot_master %>%
-  # 1. Join the data frames together by your matching column
-  left_join(seqID, by = "SampleID_clean") %>%
-  # 2. Create the seqID column: If a column from seqID (like Name) is NOT NA,
-  #    give it a "D". Otherwise, leave it blank (or NA).
-  mutate(seqID_flag = ifelse(!is.na(Name), "D", NA))
+# annot_master <- cluster_summary %>%
+#   left_join(seqID, by = "SampleID_clean") %>%
+#   mutate(seqID_flag = ifelse(!is.na(Name), "D", NA))
 
-# Check to see how many "D" flags you generated!
-table(annot_master$seqID_flag, useNA = "always")
+# Check to see how many "D"s are entered
+# table(annot_master$seqID_flag, useNA = "always")
+
+annot_master<-cluster_summary
   
 # Grab the hclust object directly from your pvclust output
 my_hclust <- cbb$hclust
@@ -75,7 +61,7 @@ annot_messy <- annot_master %>%
 lookup_df <- data.frame(
   MessyID = original_labels,
   SampleID_clean = original_labels %>%
-    tolower() %>%
+    toupper() %>%
     sub("\\.processed\\.csv$", "", .) %>%
     sub("\\._?\\d{2,3}r$", "", .) %>%
     trimws()
@@ -90,10 +76,10 @@ rownames(annotation_col) <- annotation_col$MessyID
 
 # Select your tracks and convert to factors
 annotation_col <- annotation_col %>% 
-  dplyr::select(species, K_3, K_4,K_11, ED50, seqID_flag) %>%
-  mutate(across(c(species, K_3, K_4,K_11), as.factor))
+  dplyr::select(Species, K_3, K_4,K_15, ED50) %>%
+  mutate(across(c(Species, K_3, K_4,K_15), as.factor))
 
-write.csv(annotation_col, file = here( "Data", "annotation_col.csv"))
+#write.csv(annotation_col, file = here( "Data", "annotation_col.csv"))
 
 # Explicitly match the row names to the matrix columns
 #rownames(annotation_col) <- colnames(heatmap_matrix_scaled)
@@ -101,46 +87,62 @@ write.csv(annotation_col, file = here( "Data", "annotation_col.csv"))
 # annotation_col$SampleID_clean <- NULL
 
 
-# filter out Fm/Fo and isolate your 9 metrics ---
+# filter out Fm/Fo and isolate your 9 metrics (redundant)
 metric_names <- rownames(heatmap_matrix_scaled)
 keep_metrics <- metric_names[!metric_names %in% c("Fm", "Fo", "fm", "fo")]
 heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, ]
 
 # save this for permanova
 permanova_matrix <- heatmap_matrix[, colnames(heatmap_matrix) %in% keep_metrics]
-
-# 2. Force it to be an entirely numeric data structure
 permanova_matrix <- as.matrix(permanova_matrix)
 storage.mode(permanova_matrix) <- "numeric"
+write.csv(permanova_matrix, file = here("Outputs", "permanova_matrix_clean.csv"), row.names = TRUE)
+save(permanova_matrix, file = here("Outputs", "permanova_matrix_clean.Rdata"))
 
-# 3. Save these verified objects cleanly
-write.csv(permanova_matrix, file = here("Data", "permanova_matrix_clean.csv"), row.names = TRUE)
-save(permanova_matrix, file = here("Data", "permanova_matrix_clean.Rdata"))
-
-#build the Row Annotation and Category Labels ---
+#rename metrics to catagorize into families (check with Sophie if these are right)
 metric_names <- rownames(heatmap_matrix_scaled)
 
-annotation_row <- data.frame(Metric = case_when(
-  grepl("Quant",   metric_names, ignore.case = TRUE) ~ "Quant (Quantum Yield)",
-  grepl("Sigma",   metric_names, ignore.case = TRUE) ~ "Sigma (Antenna Size)",
-  grepl("Connect", metric_names, ignore.case = TRUE) ~ "Connect (Connectivity)",
-  grepl("Tau1",    metric_names, ignore.case = TRUE) ~ "Tau1 (Transport Kinetics 1)",
-  grepl("Tau2",    metric_names, ignore.case = TRUE) ~ "Tau2 (Transport Kinetics 2)",
-  grepl("NPQ",     metric_names, ignore.case = TRUE) ~ "NPQ (Non-Photochemical Quenching)",
-  grepl("qP",      metric_names, ignore.case = TRUE) ~ "qP (Photochemical Quenching)",
-  grepl("ABQ",     metric_names, ignore.case = TRUE) ~ "ABQ (Absorption)",
-  grepl("qm",      metric_names, ignore.case = TRUE) ~ "qm (Max Quenching)",
-  TRUE                                               ~ "Other Metric"
-))
-rownames(annotation_row) <- metric_names
+metric_families <- data.frame(
+  Metric = metric_names,
+  Family = case_when(
+    grepl("firDer|secDer", metric_names, ignore.case = TRUE)              ~ "OJIP Kinetics (Derivatives)",
+    grepl("nCon", metric_names, ignore.case = TRUE)                        ~ "Connect (Normalized Curves)",
+    grepl("MTFm|Ratio", metric_names, ignore.case = TRUE)                  ~ "OJIP Ratios & Area",
+    grepl("quant|fvfm|yield|fv_fm", metric_names, ignore.case = TRUE)      ~ "Quant (Quantum Yield)",
+    grepl("sigma|sig", metric_names, ignore.case = TRUE)                  ~ "Sigma (Antenna Size)",
+    grepl("connect|conn", metric_names, ignore.case = TRUE)               ~ "Connect (Connectivity)",
+    grepl("tau1|tau_1|\\bt1\\b", metric_names, ignore.case = TRUE)        ~ "Tau1 (Transport Kinetics 1)",
+    grepl("tau2|tau_2|\\bt2\\b", metric_names, ignore.case = TRUE)        ~ "Tau2 (Transport Kinetics 2)",
+    grepl("npq", metric_names, ignore.case = TRUE)                        ~ "NPQ (Non-Photochemical Quenching)",
+    grepl("qp", metric_names, ignore.case = TRUE)                         ~ "qP (Photochemical Quenching)",
+    grepl("abq", metric_names, ignore.case = TRUE)                        ~ "ABQ (Absorption)",
+    grepl("qm", metric_names, ignore.case = TRUE)                         ~ "qm (Max Quenching)",
+    TRUE                                                                  ~ "Other Metric"
+  ),
+  stringsAsFactors = FALSE
+)
+#look at what other metrics are
+head(rownames(heatmap_matrix_scaled)[metric_families$Family == "Other Metric"], 10)
+
+#save this for later plotting
+save(metric_families, file = here("Data", "metric_families.Rdata"))
 
 
-# sort both the Matrix and Annotation by Metric Category ---
-# This orders the metrics alphabetically by their clean group names
-sorted_order <- order(annotation_row$Metric)
+# sorted_order <- heatmap_matrix_scaled$Family
+# 
+# heatmap_matrix_scaled <- heatmap_matrix_scaled[sorted_order, ]
+
+annotation_row <- data.frame(
+  Family = metric_families$Family,
+  row.names = metric_families$Metric
+)
+
+sorted_order <- order(annotation_row$Family)
 
 heatmap_matrix_scaled <- heatmap_matrix_scaled[sorted_order, ]
 annotation_row        <- annotation_row[sorted_order, , drop = FALSE]
+
+#annotation_row <- annotation_row[rownames(heatmap_matrix_scaled), , drop = FALSE]
 
 # Define the high-contrast colors and breaks
 my_palette <- colorRampPalette(c("darkblue", "white", "darkred"))(100)
@@ -148,7 +150,7 @@ my_breaks <- seq(-3, 3, length.out = 101)
 
 #plot heatmap
 jpeg(
-  file = here("Plots", "Sorted_Grouped_Physiological_Heatmap_k3411.jpg"), 
+  file = here("Plots", "Sorted_Grouped_Physiological_Heatmap_k3415.jpg"), 
   width = 12, 
   height = 10, 
   units = "in", 
@@ -160,12 +162,12 @@ pheatmap(
   annotation_col = annotation_col,
   annotation_row = annotation_row,
   show_colnames  = FALSE,         
-  show_rownames  = FALSE,          # <--- Turn this back to TRUE to see them!
+  show_rownames  = FALSE, 
   cluster_rows   = FALSE,         
   cluster_cols   = my_hclust,     
   color          = my_palette,           
   breaks         = my_breaks,           
-  main           = "Sorted MAPP Fluorescence Metrics vs. Genetic Clusters",
+  main           = "Sorted MAPP Fluorescence Metrics vs. Phenotypic Clusters",
   margins        = c(5, 20)       # <--- [Column_Margin, Row_Margin]. Increase 12 if names are long!
 )
 
@@ -173,248 +175,3 @@ dev.off()
 
 
 ```
-
-#old code
-```{r}
-library(pheatmap)
-library(dplyr)
-
-# --- 1. Filter out Fm/Fo and isolate your 9 metrics ---
-metric_names <- rownames(heatmap_matrix_scaled)
-keep_metrics <- metric_names[!metric_names %in% c("Fm", "Fo", "fm", "fo")]
-heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, ]
-
-# Refresh row names after filtering
-metric_names <- rownames(heatmap_matrix_scaled)
-
-
-# --- 2. Group and Label your exact 9 metrics ---
-annotation_row <- data.frame(Metric = case_when(
-  grepl("Quant",   metric_names, ignore.case = TRUE) ~ "Quant (Quantum Yield)",
-  grepl("Sigma",   metric_names, ignore.case = TRUE) ~ "Sigma (Antenna Size)",
-  grepl("Connect", metric_names, ignore.case = TRUE) ~ "Connect (Connectivity)",
-  grepl("Tau1",    metric_names, ignore.case = TRUE) ~ "Tau1 (Transport Kinetics 1)",
-  grepl("Tau2",    metric_names, ignore.case = TRUE) ~ "Tau2 (Transport Kinetics 2)",
-  grepl("NPQ",     metric_names, ignore.case = TRUE) ~ "NPQ (Non-Photochemical Quenching)",
-  grepl("qP",      metric_names, ignore.case = TRUE) ~ "qP (Photochemical Quenching)",
-  grepl("ABQ",     metric_names, ignore.case = TRUE) ~ "ABQ (Absorption)",
-  grepl("qm",      metric_names, ignore.case = TRUE) ~ "qm (Max Quenching)",
-  TRUE                                               ~ "Other Metric"
-))
-
-rownames(annotation_row) <- metric_names
-
-
-# --- 3. Export the streamlined Heatmap ---
-png(file = here("Plots", "Streamlined_Physiological_Heatmap.pdf"), width = 12, height = 10)
-
-pheatmap(
-  heatmap_matrix_scaled,
-  annotation_col = annotation_col, # Column clusters at the top
-  annotation_row = annotation_row, # YOUR 9 CLEAN LABELED METRICS ON THE LEFT!
-  show_colnames  = FALSE,          
-  show_rownames  = FALSE,          # <--- REMOVES the text names on the right!
-  cluster_rows   = TRUE,           # Keeps the left metric tree
-  cluster_cols   = my_hclust,      # Keeps your custom top tree
-  color          = my_palette,           
-  breaks         = my_breaks,           
-  main           = "Cleaned PAM Fluorescence Metrics vs. Genetic Clusters"
-)
-
-dev.off()
-```
-
-
-
-```{r}
-library(pheatmap)
-library(dplyr)
-
-# --- 1. Filter Matrix for Your Specific Metrics ---
-# Get the row names currently in your matrix
-metric_names <- rownames(heatmap_matrix_scaled)
-
-# Filter out Fm and Fo if they are lingering in your matrix
-keep_metrics <- metric_names[!metric_names %in% c("Fm", "Fo", "fm", "fo")]
-heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, ]
-
-# --- 2. Create the Custom Biological Groupings (Rows) ---
-# Re-evaluate the trimmed row names
-metric_names <- rownames(heatmap_matrix_scaled)
-
-annotation_row <- data.frame(Metric_Type = case_when(
-  grepl("Quant|ABQ", metric_names, ignore.case = TRUE)           ~ "Quantum Yield / Absorption",
-  grepl("Sigma|Connect|nCon", metric_names, ignore.case = TRUE)  ~ "Antenna Size & Connectivity",
-  grepl("Tau|nTau", metric_names, ignore.case = TRUE)            ~ "Electron Transport Kinetics",
-  grepl("NPQ|qP|qm", metric_names, ignore.case = TRUE)           ~ "Photochemical & Non-Photochemical Quenching",
-  TRUE ~ "Other Metrics"
-))
-
-# Match row names perfectly
-rownames(annotation_row) <- metric_names
-
-# --- 3. Run the Final Heatmap ---
-pheatmap(
-  heatmap_matrix_scaled,
-  annotation_col = annotation_col, # Your K-cluster columns at the top
-  annotation_row = annotation_row, # Your functional PAM metric groupings on the left
-  show_colnames  = FALSE,          
-  show_rownames  = TRUE,           # Prints Quant, Sigma, Tau, etc., on the right
-  fontsize_row   = 9,              
-  cluster_rows   = TRUE,           # Clusters the metrics by how they behave
-  cluster_cols   = my_hclust,      # Locked to your custom CBB bootstrap tree
-  color          = my_palette,           
-  breaks         = my_breaks,           
-  main           = "PAM Fluorescence Metrics vs. Genetic K-Clusters"
-)
-```
-
-
-```{r}
-# 1. Open a clean PDF file canvas (Adjust width and height if text still overlaps)
-pdf(file = here("Data", "Physiological_Heatmap_Output.pdf"), width = 12, height = 10)
-
-# 2. Run your exact pheatmap code inside the exporter
-pheatmap(
-  heatmap_matrix_scaled,
-  annotation_col = annotation_col, 
-  annotation_row = annotation_row, 
-  show_colnames  = FALSE,          # Hides messy sample names entirely
-  show_rownames  = TRUE,           # Keeps your Quant, Sigma, Tau labels
-  fontsize_row   = 8,              # Clean, readable size for metric text
-  cluster_rows   = TRUE,           
-  cluster_cols   = my_hclust,      
-  color          = my_palette,           
-  breaks         = my_breaks,           
-  main           = "PAM Fluorescence Metrics vs. Genetic K-Clusters"
-)
-
-# 3. CRITICAL: Close the file canvas and write it to disk
-dev.off()
-```
-
-
-
-
-```{r}
-library(pheatmap)
-library(dplyr)
-
-# --- 1. Fix the labels inside the actual hclust object ---
-# Grab the hclust object directly from your pvclust output
-my_hclust <- cbb$hclust
-
-# Clean the labels directly on the hclust object so it stays the correct data type
-my_hclust$labels <- my_hclust$labels %>%
-  tolower() %>%
-  sub("\\.processed\\.csv$", "", .) %>%
-  sub("\\._?\\d{2,3}r$", "", .) %>%
-  trimws()
-
-# Keep track of this order for matching data frames
-dend_order_labels <- my_hclust$labels
-
-
-# --- 2. Align the physiological matrix data ---
-# Match the rows of your clean numeric matrix to the exact order of the hclust labels
-heatmap_matrix <- Alls.cor_clean[match(cbb$hclust$labels, rownames(Alls.cor_clean)), ] %>%
-  as.matrix()
-
-# Transpose and scale (z-score) so traits are rows
-heatmap_matrix_scaled <- t(scale(heatmap_matrix))
-# Add this line right after you create heatmap_matrix_scaled!
-heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
-heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
-
-# Assign the cleaned labels as the column names of the matrix
-colnames(heatmap_matrix_scaled) <- dend_order_labels
-
-
-# --- 3. Align the cluster metadata annotations ---
-annotation_col <- cluster_summary %>%
-  mutate(SampleID_clean = tolower(trimws(SampleID_clean))) %>%
-  filter(SampleID_clean %in% dend_order_labels) %>%
-  slice(match(dend_order_labels, SampleID_clean)) %>%
-  dplyr::select(species, K_10) %>% # Toggle your K's here
-  mutate(across(everything(), as.factor)) %>%
-  as.data.frame()
-
-# Explicitly match the row names to the matrix columns
-rownames(annotation_col) <- colnames(heatmap_matrix_scaled)
-
-
-# --- 4. Run the Heatmap ---
-pheatmap(
-  heatmap_matrix_scaled,
-  annotation_col = annotation_col,
-  show_colnames = FALSE,         
-  cluster_rows = TRUE,           
-  cluster_cols = my_hclust,      # <--- Passing the adjusted hclust object fixes the type error!
-  main = "Physiological Profiles Ordered by CBB Dendrogram"
-)
-
-
-##or
-# Cap the outliers first
-heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
-heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
-
-# Define the high-contrast colors and breaks
-my_palette <- colorRampPalette(c("darkblue", "white", "darkred"))(100)
-my_breaks <- seq(-3, 3, length.out = 101)
-
-# Run the updated heatmap
-pheatmap(
-  heatmap_matrix_scaled,
-  annotation_col = annotation_col,
-  show_colnames = FALSE,         
-  cluster_rows = TRUE,           
-  cluster_cols = my_hclust,      
-  color = my_palette,           # <--- Force high-contrast colors
-  breaks = my_breaks,           # <--- Force symmetric limits
-  main = "Physiological Profiles Ordered by Custom CBB Dendrogram"
-)
-```
-
-
-```{r}
-#plot ED50 by cluster assignment, here K=12
-#1. set order for easy interpretation 
-custom_order <- c("1", "2", "3", "7", "8", "9", "10", "4", "11", "5", "6")
-
-# --- 2. Clean Data & Reorder Factor Levels ---
-df_sorted <- df_modeling %>%
-  filter(ED50 < 45) %>% 
-  mutate(
-    # Force K_12 to follow your specific sequence on the x-axis
-    K_11_sorted = factor(as.character(K_11), levels = custom_order),
-    species_color = toupper(trimws(species))
-  ) %>%
-  # Drop any rows that don't match your custom level list (if any exist)
-  filter(!is.na(K_11_sorted))
-
-# --- 3. Build the Single Unfaceted Plot ---
-plot_sorted_k11 <- ggplot(df_sorted, aes(x = K_11_sorted, y = ED50)) +
-  # One clean boxplot per cluster step along your custom x-axis order
-  geom_boxplot(alpha = 0.3, outlier.shape = NA, color = "black", fill = "grey98") +
-  
-  # Scatter individual dots colored by species
-  geom_jitter(aes(color = species_color, shape = site), width = 0.2, alpha = 0.8, size = 2.5) +
-  
-  theme_bw(base_size = 12) +
-  theme(
-    panel.grid.minor = element_blank(),
-    axis.text.x = element_text(face = "bold", size = 11),
-    legend.position = "bottom"
-  ) +
-  labs(
-   # title = "ED50 Phenotypes Ordered by Custom Cluster Sequence",
-    x = "K_11 Cluster Assignment",
-    y = expression(ED[50]*" Score"),
-    color = "Species"
-  )
-
-# Save the plot with a wide canvas ratio to accommodate the 12 columns
-ggsave(here("Plots", "ED50_K12_boxplot_Sorted.png"), plot = plot_sorted_k12, width = 11, height = 7, dpi = 300)
-```
-

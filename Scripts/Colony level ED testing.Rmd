@@ -66,19 +66,20 @@ metadata_small <- combined_df %>%
   distinct(Grouping_property, .keep_all = TRUE)
 
 EDsdf_clean <- EDsdf %>%
-  select(-Species, -Site)  # drop duplicates if present
+  dplyr::select(-Species, -Site)  # drop duplicates if present
 
 #combine 
 cbass_dataset <- metadata_small %>%
-  left_join(EDsdf_clean, by = "GroupingProperty") %>%
-
-  left_join(bloop_cluster, by = "GroupingProperty")
+  left_join(EDsdf_clean, by = "GroupingProperty") 
+  #%>%
+  # 
+  # left_join(bloop_cluster, by = "Grouping_property")
 
 
 cbass_dataset$DW <- cbass_dataset$ED95 - cbass_dataset$ED5
 #clean
 cbass_dataset <-  cbass_dataset %>% 
-  select(
+  dplyr::select(
     GroupingProperty, 
     Species,
     Site,
@@ -89,12 +90,12 @@ cbass_dataset <-  cbass_dataset %>%
     ED50, 
     ED5, 
     ED95, 
-    DW,
-    Cluster_4,
-    Cluster_5,
-    Cluster_6,
-    Cluster_7,
-    Cluster_8)
+    DW)
+    # Cluster_4,
+    # Cluster_5,
+    # Cluster_6,
+    # Cluster_7,
+    # Cluster_8)
 
 write.csv(cbass_dataset, here("Data", "full_cbass_dataset.csv"), row.names = FALSE)
 

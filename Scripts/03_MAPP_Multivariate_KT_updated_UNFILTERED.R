@@ -1,14 +1,23 @@
+rm(list = ls())
 library(tidyverse)
 library(vegan)
 library(here)
 library(ggplot2)
 library(ggnewscale)
+library(pheatmap)
+library(viridis)
 
+# species_colors <- c(
+#   "aabr" = "#046E8F", 
+#   "aglo" = "lightgreen", 
+#   "ahya" = "#D44D5C",
+#   "icra" = "#462255"  
+# )
 species_colors <- c(
-  "aabr" = "#046E8F", 
-  "aglo" = "lightgreen", 
-  "ahya" = "#D44D5C",
-  "icra" = "#462255"  
+  "AABR" = "#046E8F", 
+  "AGLO" = "lightgreen", 
+  "AHYA" = "#D44D5C",
+  "ICRA" = "#462255"  
 )
 # Define explicit named vector for site shapes
 custom_shapes = c(
@@ -22,48 +31,143 @@ custom_shapes = c(
   "10" = 1,  # Open Circle
   "11" = 17  # Solid Closed Triangle
 )
+category_colors <- c(
+  "ABQ (Absorption)"                       = "#1F77B4", 
+  "Quant (Quantum Yield)"                  = "#2CA02C", 
+  "Sigma (Antenna Size)"                   = "#FF7F0E", 
+  "qm (Max / Non-Photochemical Quenching)"  = "#D62728", 
+  "qP (Photochemical Quenching)"           = "#9467BD", 
+  "Tau1 (Transport Kinetics 1)"            = "#8C564B", 
+  "Tau2 (Transport Kinetics 2)"            = "#E377C2", 
+  "Connect (Connectivity)"                 = "#17BECF", 
+  "Other Metric"                           = "#7F7F7F"  
+)
 
-# =========================================================================
-# 1. Read & Format Unfiltered Data
-# =========================================================================
-pp           = read.csv(here("data", "permanova_matrix_clean.csv")) 
-annot_master = read.csv(here("Data", "cluster_and_ed50_data.csv")) # phenotype_heatmap script
-ed           = annot_master
+pp = read.csv(here("Outputs", "permanova_matrix_clean1.csv")) 
+ed = read.csv(here("Outputs", "ed50_colorslope_cluster_metadata.csv")) #from data compiler
+load(here("Outputs", "photophys_preprocessed_data.RData"))
+
+
+#run hclust
+cbb<-pvclust(t(Alls.cor_clean), method.dist="canberra", parallel=TRUE, method.hclust="ward.D", nboot=1000)
+save(cbb, file = here("Data", "cbb_AS26_expt_1000bs_updatedw9icra3.RData"))
+#or if you dont need to rerun
+#load(file = here("Data", "cbb_AS26_expt_1000bs_updated.RData")) #loads cbb
+#load(file = here("Data", "cbb_AS26_expt_1000bs_updatedw9icra3.RData"))
+
+
+load(file = here("Data", "cbb_AS26_expt_1000bs_updatedw9icra3.RData"))
+#Cut the hclust tree for K = 2 through 15
+cluster_levels <- lapply(2:15, function(k) {
+  groups <- cutree(cbb$hclust, k = k)
+  data.frame(
+    SampleID = names(groups),
+    Cluster = as.integer(groups),
+    k_val = k
+  )
+})
+
+#Pivot the cluster assignments wide  to match cols
+cluster_matrix_wide <- bind_rows(cluster_levels) %>%
+  pivot_wider(
+    names_from = k_val,
+    values_from = Cluster,
+    names_prefix = "K_"
+  )
+
+#Clean the SampleID names and parse site, species, and genotype
+cluster_summary <- cluster_matrix_wide %>%
+  mutate(
+    SampleID_clean = SampleID %>%
+      toupper() %>%
+      trimws() %>%
+      str_replace("[-_\\.]?\\d{2,3}R?[-_\\.]?PROCESSED\\.CSV$", "") %>%
+      str_replace("[-_\\.]?\\d{2,3}R$", "") %>%
+      str_replace("^T(?=\\d)", "") %>%
+      str_replace("([A-Z]{3,4})(\\d+)$", "\\1_\\2"),
+    # site     = str_extract(SampleID_clean, "^\\d+"),                      
+    # species  = str_extract(SampleID_clean, "(?<=_)[A-Z]{3,4}(?=_)"),      
+    # genotype = str_extract(SampleID_clean, "\\d+$")                        
+  ) %>%
+  distinct(SampleID_clean, .keep_all = TRUE)
+# 
+# #join ed50 and color slopes to cluster summary and save
+# cluster_summary_merged <- cluster_summary %>%
+#   left_join(
+#     color,
+#       #dplyr::select(-c(Image, Folder, Species, SITE)), 
+#     #by = "SampleID_clean")
+#     by = "SampleID" = "SampleID_clean")
+#   
+# 
+# cluster_summary_merged <- cluster_summary_merged %>%
+#   left_join(
+#     cbass_metadata, 
+#     by = c("SampleID_clean")
+#   )
+# 
+# write.csv(cluster_summary_merged, file = here("Outputs", "fvfm_color_cluster_metadata.csv"), row.names = FALSE)
+
+cluster_summary_ed50_slope<-cluster_summary %>%
+  left_join(
+    ed50,
+    # dplyr::select(-c(site, species, Site, Species)), 
+    by = "SampleID_clean")
+
+cluster_summary_ed50_slope<-cluster_summary_ed50_slope%>%
+  left_join(
+    color%>%
+      dplyr::select(SampleID, int, slope, r2, p), 
+    by = c("SampleID_clean" = "SampleID")
+  )
+
+write.csv(cluster_summary_ed50_slope, file = here("Outputs", "ed50_colorslope_cluster_metadata.csv"), row.names = FALSE)
+###############
+ed_cleaned = ed %>%
+  mutate(
+    SampleID_clean = str_trim(as.character(SampleID_clean))
+  )
 
 pp_formatted = pp %>%
   mutate(
-    sample_file = X,
-    site        = str_extract(sample_file, "(?<=^t)\\d+"),
-    species     = str_extract(sample_file, "(?<=_)[A-Za-z]+"),
-    genotype    = str_extract(sample_file, "\\d+$")
+    SampleID_clean = as.character(X),
+    site        = str_extract(SampleID_clean, "^\\d+"),
+    species     = str_extract(SampleID_clean, "(?<=_)[A-Za-z]+"),
+    genotype    = str_extract(SampleID_clean, "\\d+$")
   )
 
-meta_cols  = c("sample_file", "site", "species", "genotype")
+meta_cols  = c("SampleID_clean", "site", "species", "genotype")
 trait_cols = setdiff(names(pp_formatted), c(meta_cols, "X"))
 pp_formatted = pp_formatted[, c(meta_cols, trait_cols)]
+
 
 # Matching Key Function to join ED50/Species metadata
 create_matching_key = function(df) {
   df %>%
     mutate(
-      tp_num           = str_match(sample_file, "^t(\\d+)")[,2],
-      geno_name        = toupper(str_match(sample_file, "^t\\d+_([a-zA-Z]+)")[,2]),
-      rep_num          = str_match(sample_file, "^t\\d+_[a-zA-Z]+(\\d+)")[,2],
+      clean_file = str_remove(SampleID_clean, "\\.[a-zA-Z0-9]+$"),
+      tp_num     = str_match(clean_file, "^t(\\d+)")[,2],
+      geno_name  = toupper(str_match(clean_file, "^t\\d+_([a-zA-Z]+)")[,2]),
+      rep_num    = str_match(clean_file, "^t\\d+_[a-zA-Z]+(\\d+)")[,2],
       GroupingProperty = paste(tp_num, geno_name, rep_num, sep = "_")
     ) %>%
-    dplyr::select(-tp_num, -geno_name, -rep_num)
+    dplyr::select(-clean_file, -tp_num, -geno_name, -rep_num)
 }
 
 # Apply key creation to full unfiltered dataset
 pp_unfiltered = create_matching_key(pp_formatted)
 
 # Join Species and metadata
-pp_unfiltered_species = pp_unfiltered %>%
+pp_unfiltered_species <- pp_unfiltered %>%
+  mutate(SampleID_clean = trimws(SampleID_clean)) %>%
   left_join(
-    ed %>% dplyr::select(SampleID_clean), 
-    by = c("sample_file" = "SampleID_clean")
+    ed_cleaned %>%
+      mutate(SampleID_clean = trimws(SampleID_clean)) %>%
+      dplyr::select(SampleID_clean, Species),
+    by =  "SampleID_clean"
   ) %>%
   filter(!is.na(species))
+
 
 # =========================================================================
 # 2. Extract & Scale Unfiltered Traits (Clean Zero-Variance Traits)
@@ -87,11 +191,16 @@ matrix_unfiltered_scaled = scale(trait_matrix_clean)
 matrix_unfiltered_scaled[is.na(matrix_unfiltered_scaled)] = 0
 
 # Extract metadata corresponding to rows
-meta_unfiltered = pp_unfiltered_species %>% 
-  dplyr::select(sample_file, genotype, sample_file, species, site)
+meta_unfiltered = pp_unfiltered_species %>%
+  dplyr::select(all_of(meta_cols), SampleID_clean) %>%
+  left_join(
+    ed_cleaned %>% dplyr::select(SampleID_clean, K_3, ED50, slope), 
+    by = "SampleID_clean"
+  ) %>%
+  mutate(K_3 = factor(K_3))
 
 # =========================================================================
-# 3. PERMANOVA & Dispersion Tests (Unfiltered)
+# 3. PERMANOVA & Dispersion Tests 
 # =========================================================================
 # Overall PERMANOVA
 permanova_unfiltered = adonis2(
@@ -185,250 +294,99 @@ nmds_unfiltered = metaMDS(
 cat("\nUnfiltered nMDS Stress Value:", nmds_unfiltered$stress, "\n")
 
 # Fit vectors for all traits
-ef_unfiltered = envfit(nmds_unfiltered, matrix_unfiltered_scaled, permutations = 999)
+#ef_unfiltered = envfit(nmds_unfiltered, matrix_unfiltered_scaled, permutations = 999)
 
-saveRDS(ef_unfiltered, here("Outputs", "ef_unfiltered_nmds.rds"))
+#saveRDS(ef_unfiltered, here("Outputs", "ef_unfiltered_nmds.rds"))
+#ReadRDS(here("Outputs/ef_unfiltered_nmds.rds"))
 
 vector_scores = as.data.frame(scores(ef_unfiltered, display = "vectors"))
 vector_scores$Metric = rownames(vector_scores)
 vector_scores$r2     = ef_unfiltered$vectors$r
 vector_scores$p_val  = ef_unfiltered$vectors$pvals
 
+vector_scores = vector_scores %>%
+  left_join(metric_families, by = "Metric")
+
 # Filter top 10 metric drivers (these are collinear!)
 top_vectors = vector_scores %>%
   filter(p_val < 0.01) %>%
   arrange(desc(r2)) %>%
-  head(15)
+  head(25)
 
 cat("\n--- TOP METRIC DRIVERS OF UNFILTERED ORDINATION ---\n")
 print(top_vectors)
 # Keep all statistically significant candidate traits
 sig_vectors = vector_scores %>%
-  filter(p_val < 0.05) %>%
+  filter(p_val < 0.0019) %>%
   arrange(desc(r2))
 
-# =========================================================================
-# 2. Compute Correlation Matrix & Variable Clustering (|r| >= 0.90threshold)
-# =========================================================================
-# Extract scaled raw trait data for candidate vectors
-sig_trait_matrix = matrix_unfiltered_scaled[, sig_vectors$Metric]
-
-# Pearson correlation matrix
-cor_mat = cor(sig_trait_matrix, use = "pairwise.complete.obs")
-
-# Convert correlation to distance matrix (1 - |r|)
-trait_dist = as.dist(1 - abs(cor_mat))
-
-# Hierarchical clustering of variables
-trait_tree = hclust(trait_dist, method = "complete")
-
-# Cut tree at distance = 0.15 (equivalent to |r| = 0.90 collinearity threshold)
-collinear_cluster_id = cutree(trait_tree, h = 0.10)
-
-# =========================================================================
-# 3. Build Reference Dataframe of Collinear Clusters
-# =========================================================================
-trait_cluster_ref = data.frame(
-  Metric       = names(collinear_cluster_id),
-  Cluster_ID   = factor(collinear_cluster_id)
-) %>%
-  left_join(sig_vectors, by = "Metric") %>%
-  group_by(Cluster_ID) %>%
-  # Identify the top representative trait per cluster (highest envfit R2)
-  mutate(
-    Is_Cluster_Exemplar = ifelse(r2 == max(r2), TRUE, FALSE)
-  ) %>%
-  ungroup() %>%
-  arrange(Cluster_ID, desc(r2))
-
-# --- VIEW REFERENCE DATAFRAME ---
-# This dataframe lists every trait, its collinear cluster, and whether it's the exemplar
-cat("--- TRAIT COLLINEARITY CLUSTER REFERENCE TABLE ---\n")
-print(head(trait_cluster_ref, 20))
-
-# =========================================================================
-# 4. Extract Top 10 NON-COLLINEAR Drivers
-# =========================================================================
-top_10_non_collinear = trait_cluster_ref %>%
-  filter(Is_Cluster_Exemplar == TRUE) %>%
-  distinct(Cluster_ID, .keep_all = TRUE) %>% # Break any rare R2 ties
-  arrange(desc(r2)) %>%
-  head(10)
-
-#pull associated drivers for the top 10
-top_10_cluster_ids = trait_cluster_ref %>%
-  filter(Is_Cluster_Exemplar == TRUE) %>%
-  distinct(Cluster_ID, .keep_all = TRUE) %>%
-  arrange(desc(r2)) %>%
-  head(10) %>%
-  pull(Cluster_ID)
-
-
-top_10_with_all_collinears = trait_cluster_ref %>%
-  # Filter for only clusters belonging to the top 10
-  filter(Cluster_ID %in% top_10_cluster_ids) %>%
-  # Arrange so the cluster exemplar is always listed first, followed by collinear traits by R2
-  arrange(match(Cluster_ID, top_10_cluster_ids), desc(Is_Cluster_Exemplar), desc(r2)) %>%
-  dplyr::select(
-    Cluster_ID, 
-    Is_Cluster_Exemplar, 
-    Metric, 
-    r2, 
-    p_val
-  )
-
-write.csv(
-  top_10_with_all_collinears, 
-  here("Outputs", "top_10_non_collinear_clusters_with_all_traits.csv"), 
-  row.names = FALSE
-)
-
-top_10_summary_wide = top_10_with_all_collinears %>%
-  group_by(Cluster_ID) %>%
-  summarise(
-    Exemplar_Trait      = Metric[Is_Cluster_Exemplar == TRUE][1],
-    Exemplar_R2         = r2[Is_Cluster_Exemplar == TRUE][1],
-    Total_Traits_In_Group = n(),
-    Collinear_Traits    = paste(Metric[Is_Cluster_Exemplar == FALSE], collapse = ", ")
-  ) %>%
-  arrange(desc(Exemplar_R2))
-
-print(top_10_summary_wide)
-
-#visualize correlations per group
-library(pheatmap)
-library(viridis)
-
-#LOOP THROUGH and make correlation matrices for each trait
-# 1. Create output directory if it doesn't exist
-output_dir <- here("Plots", "cor")
-if (!dir.exists(output_dir)) {
-  dir.create(output_dir, recursive = TRUE)
-}
-
-# 2. Get unique Cluster IDs from the top 10 non-collinear dataset
-unique_clusters <- unique(top_10_with_all_collinears$Cluster_ID)
-
-# 3. Loop through each cluster and generate/save the correlation heatmap
-for (cid in unique_clusters) {
-  
-  # Select traits belonging to the current cluster
-  cluster_traits <- top_10_with_all_collinears %>%
-    filter(Cluster_ID == cid) %>%
-    pull(Metric)
-  
-  # Skip clusters with fewer than 2 traits (can't build a matrix/heatmap for 1 trait)
-  if (length(cluster_traits) < 2) {
-    cat(sprintf("Skipping Cluster %s: contains only 1 trait.\n", cid))
-    next
-  }
-  
-  # Extract correlation sub-matrix
-  sub_cor_mat <- cor_mat[cluster_traits, cluster_traits, drop = FALSE]
-  
-  # Clean row and column names for clean display
-  # Fallback to full metric name if regex pattern doesn't match
-  short_names <- str_extract(cluster_traits, "^[^.]+\\.[^.]+")
-  short_names[is.na(short_names)] <- cluster_traits[is.na(short_names)]
-  
-  rownames(sub_cor_mat) <- short_names
-  colnames(sub_cor_mat) <- short_names
-  
-  # Define output file path
-  file_path <- file.path(output_dir, sprintf("Cluster_%s_correlation_heatmap.png", cid))
-  
-  # Dynamic dimension sizing based on the number of traits
-  n_traits <- length(cluster_traits)
-  img_width <- max(6, n_traits * 0.8)
-  img_height <- max(5, n_traits * 0.8)
-  
-  # Generate and save heatmap via pheatmap filename argument
-  pheatmap(
-    sub_cor_mat,
-    color            = viridis(100),
-    display_numbers  = TRUE,
-    number_format    = "%.2f",
-    fontsize_number  = max(6, 10 - n_traits * 0.2), # Adjust font size dynamically
-    main             = sprintf("Cluster %s Trait Correlation Matrix (r)", cid),
-    filename         = file_path,
-    width            = img_width,
-    height           = img_height
-  )
-  
-  cat(sprintf("Saved heatmap for Cluster %s -> %s\n", cid, file_path))
-}
-
-################
-
-top_vectors_clean = top_10_non_collinear %>%
-  mutate(
-    # Match raw string to standard metric palette categories
-    Metric_Category = case_when(
-      grepl("Quant", Metric, ignore.case = TRUE) ~ "Quant (Quantum Yield)",
-      grepl("qP",    Metric, ignore.case = TRUE) ~ "qP (Photochemical Quenching)",
-      grepl("qm",    Metric, ignore.case = TRUE) ~ "qm (Max Quenching)",
-      grepl("ABQ",   Metric, ignore.case = TRUE) ~ "ABQ (Absorption)",
-      grepl("Sigma", Metric, ignore.case = TRUE) ~ "Sigma (Antenna Size)",
-      grepl("Connect", Metric, ignore.case = TRUE) ~ "Connect (Connectivity)",
-      grepl("Tau1",  Metric, ignore.case = TRUE) ~ "Tau1 (Transport Kinetics 1)",
-      grepl("Tau2",  Metric, ignore.case = TRUE) ~ "Tau2 (Transport Kinetics 2)",
-      grepl("NPQ",   Metric, ignore.case = TRUE) ~ "NPQ (Non-Photochemical Quenching)",
-      TRUE                                       ~ "Other Metric"
-    ),
-    
-    # Extract short trait family
-    Trait_Family = str_extract(Metric, "(mQuant|qqP|mqP|qP|rqm|qm|rABQ|Sigma|Tau1|Tau2|NPQ)"),
-    
-    # Extract condition/lighting phase prefix (e.g. L3CampR1, DCompL12, DCampL1, mean)
-    Phase = str_extract(Metric, "^[A-Za-z0-9]+"),
-    
-    # Construct clean publication label (e.g. "mQuant (L3CampR1)")
-    Clean_Label = case_when(
-      !is.na(Trait_Family) & !is.na(Phase) ~ paste0(Trait_Family, " (", Phase, ")"),
-      !is.na(Trait_Family)                 ~ Trait_Family,
-      TRUE                                 ~ Metric
-    ),
-    
-    # Scale vector arrows for nMDS canvas
-    NMDS1_scaled = NMDS1 * sqrt(r2) * arrow_mult,
-    NMDS2_scaled = NMDS2 * sqrt(r2) * arrow_mult
-  )
-
-# Verify clean label extraction
-print(top_vectors_clean %>% dplyr::select(Metric, Metric_Category, Clean_Label, Trait_Family))
-
-# Site scores for plotting
-# nmds_scores = as.data.frame(scores(nmds_unfiltered, display = "sites")) %>%
-#   bind_cols(meta_unfiltered %>% dplyr::select(species, genotype, site))
-
 nmds_scores = as.data.frame(scores(nmds_unfiltered, display = "sites")) %>%
-  bind_cols(meta_unfiltered %>% dplyr::select(site, sample_file, species, genotype))
+  bind_cols(meta_unfiltered %>% dplyr::select(site, SampleID_clean, species, genotype))
 
 # join K_3 from `ed` using GroupingProperty (or sample_file)
 nmds_scores = nmds_scores %>%
   left_join(
-    ed %>% dplyr::select(SampleID_clean, K_3), 
-    by = c("sample_file" = "SampleID_clean")
+    ed %>% dplyr::select(SampleID_clean, K_3, Site), 
+    by =  "SampleID_clean"
   ) %>%
   mutate(K_3 = factor(K_3))
 
 # Define clean color palette for K=3 Clusters
 cluster_colors = c(
   "1" = "orange",  
-  "2" = "purple",  
+  "2" = "violet",  
   "3" = "grey"   
 )
-
-# Auto-calculate arrow scaling multiplier to fit canvas perfectly
 max_site_coord   = max(abs(c(nmds_scores$NMDS1, nmds_scores$NMDS2)))
-max_vector_coord = max(sqrt(top_vectors_clean$NMDS1^2 + top_vectors_clean$NMDS2^2))
+max_vector_coord = max(sqrt(top_vectors$NMDS1^2 + top_vectors$NMDS2^2))
 arrow_mult       = (max_site_coord * 0.8) / max_vector_coord
 
-top_vectors_clean = top_vectors_clean %>%
+
+top_vectors_clean = top_vectors %>%
   mutate(
-    NMDS1_scaled = NMDS1 * sqrt(r2) * arrow_mult,
-    NMDS2_scaled = NMDS2 * sqrt(r2) * arrow_mult
+    # Master Family Category Mapping
+    Metric_Category = case_when(
+      # Quenching - Max / Non-Photochemical (qm, rqm)
+      grepl("r?qm|npq", Metric, ignore.case = TRUE) ~ "qm (Max / Non-Photochemical Quenching)",
+      
+      # Quenching - Photochemical (qp, mpq, mqP, ppq, qqP)
+      grepl("m?qp|p?qp|qqp|mpq|ppq", Metric, ignore.case = TRUE) ~ "qP (Photochemical Quenching)",
+      
+      # Absorption (ABQ, rABQ)
+      grepl("r?abq", Metric, ignore.case = TRUE) ~ "ABQ (Absorption)",
+      
+      # Quantum Yield
+      grepl("quant|fvfm|yield|fv_fm", Metric, ignore.case = TRUE) ~ "Quant (Quantum Yield)",
+      
+      # Kinetics & Antenna
+      grepl("sigma|sig", Metric, ignore.case = TRUE) ~ "Sigma (Antenna Size)",
+      grepl("tau1|tau_1|\\bt1\\b", Metric, ignore.case = TRUE) ~ "Tau1 (Transport Kinetics 1)",
+      grepl("tau2|tau_2|\\bt2\\b", Metric, ignore.case = TRUE) ~ "Tau2 (Transport Kinetics 2)",
+      grepl("connect|conn|ncon", Metric, ignore.case = TRUE) ~ "Connect (Connectivity)",
+      
+      TRUE ~ "Other Metric"
+    ),
+    
+    # Extract clean 3-letter/4-letter short tag for in-plot labels
+    Trait_Family = str_extract(Metric, "(?i)(mQuant|qqP|mqP|ppq|mpq|qP|rqm|qm|rABQ|ABQ|Sigma|Tau1|Tau2|NPQ|nCon)"),
+    
+    # Extract condition/lighting phase prefix (e.g. L3CampR1)
+    Phase = str_extract(Metric, "^[A-Za-z0-9]+"),
+    
+    # Construct clean publication label
+    Clean_Label = case_when(
+      !is.na(Trait_Family) & !is.na(Phase) ~ paste0(Trait_Family, " (", Phase, ")"),
+      !is.na(Trait_Family)                 ~ Trait_Family,
+      TRUE                                 ~ Metric
+    ),
+    
+    # Apply arrow_mult to scale vector endpoints for NMDS display
+    NMDS1_scaled = NMDS1 * arrow_mult,
+    NMDS2_scaled = NMDS2 * arrow_mult
   )
+
+# Verify clean label extraction
+print(top_vectors_clean %>% dplyr::select(Metric, Metric_Category, Clean_Label, Trait_Family))
 
 # =========================================================================
 # 5. Plot Unfiltered nMDS
@@ -452,22 +410,46 @@ geom_point(
   scale_fill_manual(values = species_colors, name = "Species") +
   new_scale_color() +
 geom_segment(
-  data = top_10_vectors_clean, 
-  aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Trait_Family),
+  data = top_vectors_clean, 
+  aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Metric_Category),
   arrow = arrow(length = unit(0.20, "cm")), 
   linewidth = 0.85
 ) +
   geom_text(
-    data = top_10_vectors_clean, 
-    aes(x = NMDS1_scaled * 1.10, y = NMDS2_scaled * 1.10, label = Metric, color = Trait_Family),
-    fontface = "bold", 
-    size = 3.5
+    data = top_vectors_clean,
+    aes(x = NMDS1_scaled * 1.10, y = NMDS2_scaled * 1.10, label = Trait_Family),
+    #fontface = "bold",
+    size = 3
   ) +
-  scale_color_brewer(palette = "Set1", name = "Trait Family", na.value = "grey70") +
-theme_classic(base_size = 14) +
+  scale_color_manual(values = category_colors, name = "Trait Family") +
+ # scale_color_viridis_d(option = "turbo", name = "Trait Family") +
+  
+  # --- 3. BOUNDS & SPACING ---
+  coord_cartesian(clip = "off") +
+  expand_limits(
+    x = c(min(nmds_scores$NMDS1) * 1.25, max(nmds_scores$NMDS1) * 1.25),
+    y = c(min(nmds_scores$NMDS2) * 1.25, max(nmds_scores$NMDS2) * 1.25)
+  ) +
+  theme_bw() +
   theme(
-    legend.position = "right",
-    legend.box      = "vertical"
+    plot.margin = margin(15, 25, 15, 25, "pt"),
+    legend.position = "right"
+  )+
+#   scale_color_brewer(palette = "Set1", name = "Trait Family", na.value = "grey70") +
+# theme_classic(base_size = 14) +
+#   theme(
+#     legend.position = "right",
+#     legend.box      = "vertical"
+#   ) +
+coord_cartesian(clip = "off") +
+  expand_limits(
+    x = c(min(nmds_scores$NMDS1) * 1.25, max(nmds_scores$NMDS1) * 1.25),
+    y = c(min(nmds_scores$NMDS2) * 1.25, max(nmds_scores$NMDS2) * 1.25)
+  ) +
+  theme_bw() +
+  theme(
+    plot.margin = margin(15, 25, 15, 25, "pt"),
+    legend.position = "right"
   ) +
   labs(
     title = paste0("Unfiltered (nMDS, Stress = ", round(nmds_unfiltered$stress, 3), ")"),
@@ -475,7 +457,7 @@ theme_classic(base_size = 14) +
     y = "nMDS Dimension 2"
   )
 ggsave(
-  filename = here("Plots", "nMDS_spp_unfiltered.png"),
+  filename = here("Plots", "nMDS_spp_unfiltered_ez_top20.png"),
   plot     = spp,
   width    = 9.5,
   height   = 8.0,
@@ -483,23 +465,28 @@ ggsave(
   units    = "in"
 )
 
+# # Fit ED50 directly onto the full NMDS space
+# ef_ed50 <- envfit(nmds_unfiltered, meta_unfiltered$ED50, permutations = 999, na.rm = TRUE)
+# 
+# # View direction and R2 of ED50
+# print(ef_ed50)
+
 #####plot by cluster, site
 
 # Ensure site is a factor for discrete shape mapping
 nmds_scores$site = as.factor(nmds_scores$site)
 
-
-p_nmds<- ggplot() +
-  # --- Layer 1: Species points & Site shapes ---
+p_nmds<-ggplot() +
   geom_point(
     data = nmds_scores, 
     aes(x = NMDS1, y = NMDS2, color = species, shape = site), 
-    size = 3, 
-    alpha = 0.85
+    size = 2.8, 
+    alpha = 0.75
   ) +
-  scale_color_manual(values = species_colors, name = "Species") +
+ 
   scale_shape_manual(values = custom_shapes, name = "Site") +
-  
+  scale_color_manual(values = species_colors, name = "Species") +
+  scale_fill_manual(values = species_colors, name = "Species") +
   new_scale_color() +
   new_scale_fill() +
   
@@ -513,35 +500,55 @@ p_nmds<- ggplot() +
   ) +
   scale_color_manual(values = cluster_colors, name = "Hclust Group (K_3)") +
   scale_fill_manual(values = cluster_colors, name = "Hclust Group (K_3)") +
-  
   new_scale_color() +
-  
-  # --- Layer 3: Vectors & Labels COLORED BY TRAIT_FAMILY ---
   geom_segment(
-    data = top_10_vectors_clean, 
-    aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Trait_Family),
+    data = top_vectors_clean, 
+    aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Metric_Category),
     arrow = arrow(length = unit(0.20, "cm")), 
     linewidth = 0.85
   ) +
   geom_text(
-    data = top_10_vectors_clean, 
-    aes(x = NMDS1_scaled * 1.10, y = NMDS2_scaled * 1.10, label = Metric, color = Trait_Family),
-    fontface = "bold", 
-    size = 3.5
+    data = top_vectors_clean,
+    aes(x = NMDS1_scaled * 1.10, y = NMDS2_scaled * 1.10, label = Trait_Family),
+    #fontface = "bold",
+    size = 3
   ) +
-  # Option A: Distinct qualitative palette automatically assigned per family
-  scale_color_brewer(palette = "Set1", name = "Trait Family",  na.value = "grey70") +
+  scale_color_manual(values = category_colors, name = "Trait Family") +
+  # scale_color_viridis_d(option = "turbo", name = "Trait Family") +
   
-  # Option B: (Alternative) Viridis palette for high-contrast accessibility
-  # scale_color_viridis_d(option = "Dark1", name = "Trait Family") +
-  
-  # --- Formatting ---
-  theme_classic(base_size = 14) +
-  theme(legend.position = "right") +
+  # --- 3. BOUNDS & SPACING ---
+  coord_cartesian(clip = "off") +
+  expand_limits(
+    x = c(min(nmds_scores$NMDS1) * 1.25, max(nmds_scores$NMDS1) * 1.25),
+    y = c(min(nmds_scores$NMDS2) * 1.25, max(nmds_scores$NMDS2) * 1.25)
+  ) +
+  theme_bw() +
+  theme(
+    plot.margin = margin(15, 25, 15, 25, "pt"),
+    legend.position = "right"
+  )+
+  #   scale_color_brewer(palette = "Set1", name = "Trait Family", na.value = "grey70") +
+  # theme_classic(base_size = 14) +
+  #   theme(
+  #     legend.position = "right",
+  #     legend.box      = "vertical"
+  #   ) +
+  coord_cartesian(clip = "off") +
+  expand_limits(
+    x = c(min(nmds_scores$NMDS1) * 1.25, max(nmds_scores$NMDS1) * 1.25),
+    y = c(min(nmds_scores$NMDS2) * 1.25, max(nmds_scores$NMDS2) * 1.25)
+  ) +
+  theme_bw() +
+  theme(
+    plot.margin = margin(15, 25, 15, 25, "pt"),
+    legend.position = "right"
+  ) +
   labs(
+    title = paste0("Unfiltered (nMDS, Stress = ", round(nmds_unfiltered$stress, 3), ")"),
     x = "nMDS Dimension 1",
     y = "nMDS Dimension 2"
   )
+
 ggsave(
   filename = here("Plots", "nMDS_K3_unfiltered.png"),
   plot     = p_nmds,
@@ -551,10 +558,192 @@ ggsave(
   units    = "in"
 )
 
+###################################
+#now taking out collinear metrics!#
+###################################
+library(vegan)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(ggrepel)
+library(ggnewscale)
+library(here)
 
-#not taking out collinear!
-collinear_metric_plot <- ggplot() +
-  # --- 1. Site Points & Ellipses (Use unscaled NMDS1 & NMDS2) ---
+
+
+# =========================================================================
+# 2. Compute Correlation Matrix & Variable Clustering (|r| >= 0.99threshold)
+# =========================================================================
+# Extract scaled raw trait data for candidate vectors
+sig_trait_matrix = matrix_unfiltered_scaled[, sig_vectors$Metric]
+
+# Pearson correlation matrix
+cor_mat = cor(sig_trait_matrix, use = "pairwise.complete.obs")
+
+# Convert correlation to distance matrix (1 - |r|)
+trait_dist = as.dist(1 - abs(cor_mat))
+
+# Hierarchical clustering of variables
+trait_tree = hclust(trait_dist, method = "complete")
+
+# Cut tree at distance = 0.01 (equivalent to |r| = 0.99 collinearity threshold)
+collinear_cluster_id = cutree(trait_tree, h = 0.01)
+
+# =========================================================================
+# 3. Build Reference Dataframe of Collinear Clusters
+# =========================================================================
+trait_cluster_ref = data.frame(
+  Metric       = names(collinear_cluster_id),
+  Cluster_ID   = factor(collinear_cluster_id)
+) %>%
+  left_join(sig_vectors, by = "Metric") %>%
+  group_by(Cluster_ID) %>%
+  # Identify the top representative trait per cluster (highest envfit R2)
+  mutate(
+    Is_Cluster_Exemplar = ifelse(r2 == max(r2), TRUE, FALSE)
+  ) %>%
+  ungroup() %>%
+  arrange(Cluster_ID, desc(r2))
+
+# --- VIEW REFERENCE DATAFRAME ---
+# This dataframe lists every trait, its collinear cluster, and whether it's the exemplar
+cat("--- TRAIT COLLINEARITY CLUSTER REFERENCE TABLE ---\n")
+print(head(trait_cluster_ref, 20))
+
+
+# =========================================================================
+# 4. Extract Top 10 NON-COLLINEAR Drivers
+# =========================================================================
+top_10_non_collinear <- trait_cluster_ref %>%
+  filter(Is_Cluster_Exemplar == TRUE) %>%
+  distinct(Cluster_ID, .keep_all = TRUE) %>% # Break any rare R2 ties
+  arrange(desc(r2)) %>%
+  head(20)
+
+# #pull associated drivers for the top 10
+# top_10_cluster_ids = trait_cluster_ref %>%
+#   filter(Is_Cluster_Exemplar == TRUE) %>%
+#   distinct(Cluster_ID, .keep_all = TRUE) %>%
+#   arrange(desc(r2)) %>%
+#   head(10)
+
+
+top_10_with_all_collinears = trait_cluster_ref %>%
+  # Filter for only clusters belonging to the top 10
+  filter(Cluster_ID %in% top_10_non_collinear) %>%
+  # Arrange so the cluster exemplar is always listed first, followed by collinear traits by R2
+  arrange(match(Cluster_ID, top_10_non_collinear), desc(Is_Cluster_Exemplar), desc(r2)) %>%
+  dplyr::select(
+    Cluster_ID, 
+    Is_Cluster_Exemplar, 
+    Metric, 
+    r2, 
+    p_val
+  )
+
+top_10_summary_wide = top_10_with_all_collinears %>%
+  group_by(Cluster_ID) %>%
+  summarise(
+    Exemplar_Trait      = Metric[Is_Cluster_Exemplar == TRUE][1],
+    Exemplar_R2         = r2[Is_Cluster_Exemplar == TRUE][1],
+    Total_Traits_In_Group = n(),
+    Collinear_Traits    = paste(Metric[Is_Cluster_Exemplar == FALSE], collapse = ", ")
+  ) %>%
+  arrange(desc(Exemplar_R2))
+
+print(top_10_summary_wide)
+
+# write.csv(
+#   top_10_summary_wide, 
+#   here("Outputs", "top_10_non_collinear_clusters_with_all_traits.csv"), 
+#   row.names = FALSE
+# )
+
+# =========================================================================
+# 1. Site Scores & Ellipses from FULL UNFILTERED NMDS
+# =========================================================================
+nmds_scores_unfiltered <- as.data.frame(scores(nmds_unfiltered, display = "sites")) %>%
+  bind_cols(meta_unfiltered %>% dplyr::select(site, SampleID_clean, species, genotype)) %>%
+  left_join(
+    ed %>% dplyr::select(SampleID_clean, K_3), 
+    by =  "SampleID_clean"
+  ) %>%
+  mutate(
+    K_3  = factor(K_3),
+    site = factor(site),
+    HH   = paste0(toupper(species), "_", K_3)
+  )
+
+# =========================================================================
+# 2. Extract Vectors from FULL envfit, filtered to Top 10 Exemplars
+# =========================================================================
+# Vector of exemplar metric names from your collinearity clustering
+exemplar_metrics <- top_10_non_collinear %>% pull(Metric)
+
+# Extract ALL vector scores from the full unfiltered envfit model
+vector_scores_unfiltered <- as.data.frame(scores(ef_unfiltered, display = "vectors")) %>%
+  mutate(
+    Metric = rownames(.),
+    r2     = ef_unfiltered$vectors$r,
+    p_val  = ef_unfiltered$vectors$pvals
+  ) %>%
+  # FILTER STEP: Keep ONLY the 10 exemplar drivers!
+  filter(Metric %in% exemplar_metrics)
+
+# Calculate arrow multiplier relative to full NMDS sample coordinates
+max_site_coord   <- max(abs(c(nmds_scores_unfiltered$NMDS1, nmds_scores_unfiltered$NMDS2)))
+max_vector_coord <- max(sqrt(vector_scores_unfiltered$NMDS1^2 + vector_scores_unfiltered$NMDS2^2))
+arrow_mult       <- (max_site_coord * 0.8) / max_vector_coord
+
+# Apply Master Trait Family regex mapping & coordinate scaling
+top_vectors_clean_10 <- vector_scores_unfiltered %>%
+  mutate(
+    # Master Family Category Mapping
+    Metric_Category = case_when(
+      # Quenching - Max / Non-Photochemical (qm, rqm)
+      grepl("r?qm|npq", Metric, ignore.case = TRUE) ~ "qm (Max / Non-Photochemical Quenching)",
+      
+      # Quenching - Photochemical (qp, mpq, mqP, ppq, qqP)
+      grepl("m?qp|p?qp|qqp|mpq|ppq", Metric, ignore.case = TRUE) ~ "qP (Photochemical Quenching)",
+      
+      # Absorption (ABQ, rABQ)
+      grepl("r?abq", Metric, ignore.case = TRUE) ~ "ABQ (Absorption)",
+      
+      # Quantum Yield
+      grepl("quant|fvfm|yield|fv_fm", Metric, ignore.case = TRUE) ~ "Quant (Quantum Yield)",
+      
+      # Kinetics & Antenna
+      grepl("sigma|sig", Metric, ignore.case = TRUE) ~ "Sigma (Antenna Size)",
+      grepl("tau1|tau_1|\\bt1\\b", Metric, ignore.case = TRUE) ~ "Tau1 (Transport Kinetics 1)",
+      grepl("tau2|tau_2|\\bt2\\b", Metric, ignore.case = TRUE) ~ "Tau2 (Transport Kinetics 2)",
+      grepl("connect|conn|ncon", Metric, ignore.case = TRUE) ~ "Connect (Connectivity)",
+      
+      TRUE ~ "Other Metric"
+    ),
+    
+    # Extract clean 3-letter/4-letter short tag for in-plot labels
+    Trait_Family = str_extract(Metric, "(?i)(mQuant|qqP|mqP|ppq|mpq|qP|rqm|qm|rABQ|ABQ|Sigma|Tau1|Tau2|NPQ|nCon)"),
+    
+    # Extract condition/lighting phase prefix (e.g. L3CampR1)
+    Phase = str_extract(Metric, "^[A-Za-z0-9]+"),
+    
+    # Construct clean publication label
+    Clean_Label = case_when(
+      !is.na(Trait_Family) & !is.na(Phase) ~ paste0(Trait_Family, " (", Phase, ")"),
+      !is.na(Trait_Family)                 ~ Trait_Family,
+      TRUE                                 ~ Metric
+    ),
+    
+    # Apply arrow_mult to scale vector endpoints for NMDS display
+    NMDS1_scaled = NMDS1 * arrow_mult,
+    NMDS2_scaled = NMDS2 * arrow_mult
+  )
+
+# =========================================================================
+# 3. Plot Full Space with Non-Collinear Vector Overlay
+# =========================================================================
+p_nmds_noncollinear<-
+  ggplot() +
   geom_point(
     data = nmds_scores, 
     aes(x = NMDS1, y = NMDS2, color = species, shape = site), 
@@ -571,43 +760,61 @@ collinear_metric_plot <- ggplot() +
   scale_shape_manual(values = custom_shapes, name = "Site") +
   scale_color_manual(values = species_colors, name = "Species") +
   scale_fill_manual(values = species_colors, name = "Species") +
-  
-  # --- Reset color scale for vectors ---
   new_scale_color() +
-  
-  # --- 2. Filtered Non-Collinear Vectors (Use top_10_vectors_clean & Scaled coords) ---
   geom_segment(
-    data = top_vectors, 
-    aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Trait_Family),
+    data = top_vectors_clean_10, 
+    aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Metric_Category),
     arrow = arrow(length = unit(0.20, "cm")), 
     linewidth = 0.85
   ) +
   geom_text(
-    data = top_vectors, 
-    aes(x = NMDS1_scaled * 1.10, y = NMDS2_scaled * 1.10, label = Clean_Label, color = Trait_Family),
-    fontface = "bold", 
-    size = 3.5
+    data = top_vectors_clean_10,
+    aes(x = NMDS1_scaled * 1.10, y = NMDS2_scaled * 1.10, label = Trait_Family),
+    #fontface = "bold",
+    size = 3
   ) +
-  scale_color_brewer(palette = "Set1", name = "Trait Family", na.value = "grey70") +
+  scale_color_manual(values = category_colors, name = "Trait Family") +
+  # scale_color_viridis_d(option = "turbo", name = "Trait Family") +
   
-  # --- 3. Formatting ---
-  theme_classic(base_size = 14) +
+  # --- 3. BOUNDS & SPACING ---
+  coord_cartesian(clip = "off") +
+  expand_limits(
+    x = c(min(nmds_scores$NMDS1) * 1.25, max(nmds_scores$NMDS1) * 1.25),
+    y = c(min(nmds_scores$NMDS2) * 1.25, max(nmds_scores$NMDS2) * 1.25)
+  ) +
+  theme_bw() +
   theme(
-    legend.position = "right",
-    legend.box      = "vertical"
+    plot.margin = margin(15, 25, 15, 25, "pt"),
+    legend.position = "right"
+  )+
+  #   scale_color_brewer(palette = "Set1", name = "Trait Family", na.value = "grey70") +
+  # theme_classic(base_size = 14) +
+  #   theme(
+  #     legend.position = "right",
+  #     legend.box      = "vertical"
+  #   ) +
+  coord_cartesian(clip = "off") +
+  expand_limits(
+    x = c(min(nmds_scores$NMDS1) * 1.25, max(nmds_scores$NMDS1) * 1.25),
+    y = c(min(nmds_scores$NMDS2) * 1.25, max(nmds_scores$NMDS2) * 1.25)
+  ) +
+  theme_bw() +
+  theme(
+    plot.margin = margin(15, 25, 15, 25, "pt"),
+    legend.position = "right"
   ) +
   labs(
-    title = paste0("Unfiltered (nMDS, Stress = ", round(nmds_unfiltered$stress, 3), ")"),
+    title = paste0("Unfiltered Ordination with Top 10 Non-Collinear Vectors (Stress = ", round(nmds_unfiltered$stress, 3), ")"),
     x = "nMDS Dimension 1",
     y = "nMDS Dimension 2"
   )
 
-# Save
 ggsave(
-  filename = here("Plots", "nMDS_spp_unfiltered_COR.png"),
-  plot     = collinear_metric_plot,
+  filename = here("Plots", "nMDS_K3_unfiltered_NONCOLLINEAR20.png"),
+  plot     = p_nmds_noncollinear,
   width    = 9.5,
   height   = 8.0,
   dpi      = 300,
   units    = "in"
 )
+

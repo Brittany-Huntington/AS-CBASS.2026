@@ -1,0 +1,146 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(here)
+```
+
+```{r}
+# Read the first 1456 rows to capture the standard single-turnover metrics
+photophys <- read.csv(here("Data", "AS26_PhenotypingData_expt.csv"), row.names = 1)
+photophys <- photophys[1:1456, ] 
+
+# Load the matching cluster configuration
+load(here("Data", "cbb_AS26_expt_1000bs_updated.RData"))
+sample_metadata <- read.csv(here("Data", "AS26_MAPPmetadata_expt.csv"), check.names = FALSE)
+```
+
+```{r}
+# Clean labels from original tree to sync names correctly
+dend_ids <- cbb$hclust$labels %>%
+  tolower() %>%
+  str_replace("\\.processed\\.csv$", "") %>%
+  str_replace("\\._?\\d{2,3}r$", "") %>%
+  trimws()
+
+longphoto_shortie <- photophys %>% 
+  select(-c(uni, metrix)) %>%
+  pivot_longer(
+    cols = -c(metric, stage, col),
+    names_to = "SampleID",
+    values_to = "Value"
+  ) %>%
+  filter(!str_starts(metric, "m")) %>% # Drop multiple turnover tracking metrics
+  filter(
+    !(startsWith(SampleID, "t7") & grepl("icra|ahya", SampleID) & grepl("005", SampleID)),
+    !(startsWith(SampleID, "t7") & grepl("aglo|aabr", SampleID) & grepl("002", SampleID))
+  ) %>%
+  mutate(
+    SampleID_clean = SampleID %>%
+      tolower() %>%
+      str_replace("\\.processed\\.csv$", "") %>%
+      str_replace("\\._?\\d{2,3}r$", "") %>%
+      trimws()
+  ) %>%
+  filter(SampleID_clean %in% dend_ids)
+```
+
+```{r}
+# Pivot the clean variables wide
+longphoto_wide <- longphoto_shortie %>%
+  pivot_wider(
+    id_cols = c(stage, col, SampleID, SampleID_clean),
+    names_from = metric,
+    values_from = Value
+  ) %>%
+  dplyr::select(-Fo, -Fm)
+
+# Extract cluster configurations from the tree strictly for plotting visualization
+cluster_results <- lapply(2:15, function(k) {
+  clusters <- cutree(cbb$hclust, k = k)
+  data.frame(
+    SampleID = names(clusters),
+    Cluster = as.integer(clusters),
+    k = k
+  )
+})
+
+cluster_df_all <- bind_rows(cluster_results) %>%
+  pivot_wider(
+    names_from = k,
+    values_from = Cluster,
+    names_prefix = "K_"
+  ) %>%
+  mutate(
+    SampleID_clean = SampleID %>%
+      tolower() %>%
+      str_replace("\\.processed\\.csv$", "") %>%
+      str_replace("\\._?\\d{2,3}r$", "") %>%
+      trimws()
+  )
+
+# Join assignments
+df_with_clusters <- longphoto_wide %>%
+  left_join(cluster_df_all, by = "SampleID_clean") %>%
+  mutate(
+    site = str_remove(str_extract(SampleID_clean, "^t\\d+"), "t"),
+    species = str_extract(SampleID_clean, "(?<=_)[:alpha:]+"),
+    genotype = str_extract(SampleID_clean, "\\d+$")
+  )
+```
+
+```{r}
+# CRITICAL: We name these distinct from your main analysis pipeline files 
+write.csv(df_with_clusters, file = here("Data", "traces_data_with_clusters.csv"), row.names = FALSE)
+
+cluster_summary_traces <- df_with_clusters %>%
+  distinct(SampleID_clean, .keep_all = TRUE) %>% 
+  dplyr::select(SampleID_clean, site, species, genotype, K_2:K_15)
+
+write.csv(cluster_summary_traces, file = here("Data", "traces_cluster_summary.csv"), row.names = FALSE)
+```
+
+```{r}
+
+df_numeric <- df_with_clusters
+df_numeric[, 5:18] <- lapply(df_numeric[, 5:18], function(x) as.numeric(as.character(x)))
+
+# Calculate group means using K_3 cluster column specifically
+sum_photo_long <- df_numeric %>% 
+  dplyr::rename(Cluster = K_3) %>%  
+  group_by(stage, col, Cluster) %>%
+  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop") %>%
+  pivot_longer(
+    cols = -c(stage, col, Cluster),
+    names_to = "Metric",
+    values_to = "Value"
+  )
+
+# CLEAN FILTER STEP: Keep only the base 9 short names
+sub_photo <- sum_photo_long %>% 
+  # Strip out any summary text prefixes (like mean.1., max.1.) if they attached to the metrics
+  mutate(Metric = stringr::str_replace(Metric, "^.*(ABQ|Connect|NPQ|qm|qP|Quant|Sigma|Tau1|Tau2).*$", "\\1")) %>%
+  # Keep only the exact target base metrics
+  filter(Metric %in% c("ABQ", "Connect", "NPQ", "qm", "qP", "Quant", "Sigma", "Tau1", "Tau2")) %>%
+  filter(!col %in% c('All', 'Ratio12', 'Ratio32', 'Ratio42')) %>% 
+  mutate(stage = as.numeric(as.character(stage))) %>% 
+  filter(stage >= 1 & stage <= 27) %>% 
+  arrange(stage) %>%
+  mutate(Cluster = factor(Cluster))
+
+# Render the clean, short 3x9 grid
+ggplot(sub_photo) + 
+  geom_line(aes(x = stage, y = Value, group = interaction(col, Cluster), colour = col)) + 
+  facet_grid(Metric ~ Cluster, scales = "free_y") +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 8, face = "bold"),
+    axis.text.x = element_text(size = 7),
+    axis.text.y = element_text(size = 7),
+    axis.title = element_text(size = 9)
+  )
+```
+
