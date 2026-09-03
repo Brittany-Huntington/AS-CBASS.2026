@@ -3,8 +3,9 @@ library(lmerTest)
 library(tidyverse)
 library(performance)
 library(ggrepel)
-annot_master<-read.csv(here("Outputs", "ed50_colorslope_cluster_metadata.csv")) #from phenotype_heatmap script
-df_modeling <- annot_master %>%
+library(here)
+meta_filtered<-readRDS(here("Outputs", "master_cluster_metadata_K2_K15.rds")) #from phenotype_heatmap script
+df_modeling <- meta_filtered %>%
   mutate(across(c(starts_with("K_"), Site), as.factor)) %>%
   filter(!is.na(ED50), !is.na(Site))
 
@@ -44,7 +45,7 @@ for (k in k_range) {
     f_k_model      <- as.formula(paste0("YY ~ ", k_col, " + (1 | Site)"))
     f_kms          <- as.formula(paste0("YY ~ Species + ", k_col, " + (1 | Site)"))
     f_kmsi         <- as.formula(paste0("YY ~ Species * ", k_col, " + (1 | Site)"))
-    f_k_spp_random <- as.formula(paste0("YY ~ ", k_col, " + (1 | Site) + (1 | Species)"))
+    #f_k_spp_random <- as.formula(paste0("YY ~ ", k_col, " + (1 | Site) + (1 | Species)"))
     
     # Fit and store models (safely wrapped to catch potential singular/rank error fits)
     all_models[[paste0("k", k, "_model")]] <- tryCatch(
@@ -91,7 +92,7 @@ master_model_table <- imap_dfr(all_models, function(model_obj, model_name) {
     model_name == "spp_m" ~ "Species Only",
     str_detect(model_name, "msi$") ~ "Species * K (Interaction)",
     str_detect(model_name, "ms$") ~ "Species + K (Additive)",
-    str_detect(model_name, "_spp_random$") ~ "K + (1|Species)",
+    #str_detect(model_name, "_spp_random$") ~ "K + (1|Species)",
     TRUE ~ "K Only"
   )
   
@@ -109,7 +110,7 @@ master_model_table <- imap_dfr(all_models, function(model_obj, model_name) {
 
 # View sorted table
 master_model_table <- master_model_table %>% arrange(BIC)
-print(head(master_model_table, 20))
+top_models <- head(master_model_table, 6)
 
 # ==============================================================================
 # 4. Compute Pareto Efficiency Frontier Data
@@ -187,6 +188,86 @@ print(frontier_plot)
 
 
 ######################
-# Best model
+# Best model is k3ms
 #######################
-k3ms<- 
+spp_m    <- lmer(ED50 ~ Species + (1 | Site), data = df_modeling, REML = FALSE)
+k3ms     <- lmer(ED50 ~ Species + K_3 + (1 | Site), data = df_modeling, REML = FALSE)
+k3_model <- lmer(ED50 ~ K_3 + (1 | Site), data = df_modeling, REML = FALSE)
+k4ms     <- lmer(ED50 ~ Species + K_4 + (1 | Site), data = df_modeling, REML = FALSE)
+k2_model <- lmer(ED50 ~ K_2 + (1 | Site), data = df_modeling, REML = FALSE)
+
+# 2. Extract Model Performance (explicitly using estimator = "ML" to eliminate warning)
+p_spp <- model_performance(spp_m, estimator = "ML")
+p_k3ms <- model_performance(k3ms, estimator = "ML")
+p_k3  <- model_performance(k3_model, estimator = "ML")
+p_k4ms <- model_performance(k4ms, estimator = "ML")
+p_k2  <- model_performance(k2_model, estimator = "ML")
+
+# 3. Helper Function to Format Fixed Effects Coefficients
+get_coef_str <- function(m) {
+  df <- tidy(m, effects = "fixed")
+  paste(
+    sprintf("%s = %.2f ± %.2f (p = %.3f)", df$term, df$estimate, df$std.error, df$p.value),
+    collapse = " | "
+  )
+}
+
+coef_spp  <- get_coef_str(spp_m)
+coef_k3ms <- get_coef_str(k3ms)
+coef_k3   <- get_coef_str(k3_model)
+coef_k4ms <- get_coef_str(k4ms)
+coef_k2   <- get_coef_str(k2_model)
+
+# 4. Helper Function for Variance Component Percentages
+get_var_pct <- function(m) {
+  vc <- as.data.frame(VarCorr(m))
+  site_var  <- ifelse("Site" %in% vc$grp, vc$vcov[vc$grp == "Site"], 0)
+  res_var   <- vc$vcov[vc$grp == "Residual"]
+  total_var <- site_var + res_var
+  c(site = (site_var / total_var) * 100, res = (res_var / total_var) * 100)
+}
+
+v_spp  <- get_var_pct(spp_m)
+v_k3ms <- get_var_pct(k3ms)
+v_k3   <- get_var_pct(k3_model)
+v_k4ms <- get_var_pct(k4ms)
+v_k2   <- get_var_pct(k2_model)
+
+# 5. Build Complete Table 2 with Coefficients
+table_2_full <- tibble(
+  `Model Name` = c("spp_m (Baseline)", "k3ms", "k3_model", "k4ms", "k2_model"),
+  `Fixed Predictors` = c("Species Only", "Species + K3 Cluster", "K3 Cluster Only", "Species + K4 Cluster", "K2 Cluster Only"),
+  `AIC` = round(c(p_spp$AIC, p_k3ms$AIC, p_k3$AIC, p_k4ms$AIC, p_k2$AIC), 1),
+  `BIC` = round(c(p_spp$BIC, p_k3ms$BIC, p_k3$BIC, p_k4ms$BIC, p_k2$BIC), 1),
+  `Marginal R²` = round(c(p_spp$R2_marginal, p_k3ms$R2_marginal, p_k3$R2_marginal, p_k4ms$R2_marginal, p_k2$R2_marginal), 3),
+  `Conditional R²` = round(c(p_spp$R2_conditional, p_k3ms$R2_conditional, p_k3$R2_conditional, p_k4ms$R2_conditional, p_k2$R2_conditional), 3),
+  `Site Variance (%)` = round(c(v_spp["site"], v_k3ms["site"], v_k3["site"], v_k4ms["site"], v_k2["site"]), 1),
+  `Residual Variance (%)` = round(c(v_spp["res"], v_k3ms["res"], v_k3["res"], v_k4ms["res"], v_k2["res"]), 1),
+  #`Fixed Effect Coefficients (Estimate ± SE, p-val)` = c(coef_spp, coef_k3ms, coef_k3, coef_k4ms, coef_k2)
+)
+
+print(table_2_full)
+
+# Save to CSV for manuscript inclusion
+write.csv(table_2_full, here::here("Outputs", "Table2_Top_Models_With_Coefficients.csv"), row.names = FALSE)
+
+# Combine unnested fixed-effect tables across models
+top_models_coef_long <- bind_rows(
+  tidy(spp_m, effects = "fixed") %>% mutate(Model = "spp_m"),
+  tidy(k3ms, effects = "fixed") %>% mutate(Model = "k3ms"),
+  tidy(k3_model, effects = "fixed") %>% mutate(Model = "k3_model"),
+  tidy(k4ms, effects = "fixed") %>% mutate(Model = "k4ms"),
+  tidy(k2_model, effects = "fixed") %>% mutate(Model = "k2_model")
+) %>%
+  transmute(
+    Model = Model,
+    Term = term,
+    Estimate = round(estimate, 3),
+    `Std. Error` = round(std.error, 3),
+    `t-statistic` = round(statistic, 2),
+    `p-value` = round(p.value, 4)
+  )
+
+print(top_models_coef_long)
+
+write.csv(top_models_coef_long, here::here("Outputs", "Supplementary_Top_Models_Coefficients.csv"), row.names = FALSE)
