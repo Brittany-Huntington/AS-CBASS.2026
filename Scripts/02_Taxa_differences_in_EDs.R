@@ -1,5 +1,5 @@
 #Code for merging processed site level ED data
-
+rm(list = ls())
 #load packages
 library(tidyverse)
 library(readxl)
@@ -18,25 +18,7 @@ library(performance)
 library(here)
 library(multcomp)
 
-rm(list = ls())
-#custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
-custom_shapes <- c(16, 15, 17, 18, 8, 11, 9, 10)
-species_colors <- c(
-  "AABR" = "#046E8F", 
-  #"AGLO" = "lightgreen",  "#5B8A72", "#2A9D8F", "#4E9F3D", 
-  "AGLO" = "#4E9F3D", 
-  "AHYA" = "#D44D5C",
-  "ICRA" = "#462255"  
-)
-species_order <- c("ICRA", "AGLO", "AABR", "AHYA")
-
-species_labels <- c(
-  "AGLO" = "A. globiceps",
-  "AABR" = "A. abrotanoides",
-  "AHYA" = "A. hyacinthus",
-  "ICRA" = "I. crateriformis"
-)
-
+source(here("Scripts/00_visualization_prep.R"))
 #####Load and Prep Data-----------------------------
 
 EDdf <- read.csv(here("Data", "EDsdf_all_ramps.csv")) %>%
@@ -280,9 +262,10 @@ cld_df <- data.frame(
 ED50_summary <- ED50_summary %>%
   left_join(cld_df, by = "Species")
 
-# Publication-Ready ED50 Plot (g3)
-# Publication-Ready ED50 Plot (g3)
-g3 <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
+ED50_df <- ED50_df %>%
+  mutate(Site = factor(as.character(Site), levels = all_sites))
+
+raw <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
   # Individual data points
   geom_jitter(
     aes(color = Species, , shape = as.factor(Site)),
@@ -324,10 +307,9 @@ g3 <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
     y = expression("ED"[50] ~ " (°C)")
   ) +
   # Scales & Palettes
-  scale_color_manual(values = species_colors, limits = species_order) +
-  scale_fill_manual(values = species_colors, limits = species_order) + 
-  scale_x_discrete(labels = species_labels, limits = species_order) +
-  scale_shape_manual(values = custom_shapes) +
+  scale_color_manual(values = species_colors, limits = species_order, labels = species_labels) +
+  scale_fill_manual(values = species_colors, limits = species_order, labels = species_labels) +
+  scale_shape_manual(values = custom_shapes)+
   # Theme Customizations
   theme_classic(base_size = 12, base_family = "sans") +
   theme(
@@ -340,25 +322,25 @@ g3 <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
   )
 
 # Save Vector PDF for Publication (Adobe Illustrator / Journal Submission ready)
-g4<- ggsave(
-  filename = here::here("Plots", "ED50_post-hocs.pdf"),
-  plot = g3,
-  width = 8,
-  height = 6,
-  units = "in",
-  dpi = 600,
-  device = cairo_pdf
-)
+# ggsave(
+#   filename = here::here("Plots", "ED50_post-hocs.pdf"),
+#   plot = raw,
+#   width = 8,
+#   height = 6,
+#   units = "in",
+#   dpi = 600,
+#   device = cairo_pdf
+# )
 
 # Save High-Resolution PNG (for presentations / previews)
-ggsave(
-  filename = here::here("Plots", "ED50_post-hocs.png"),
-  plot = g3,
-  width = 8,
-  height = 6,
-  units = "in",
-  dpi = 600
-)
+# ggsave(
+#   filename = here::here("Plots", "ED50_post-hocs.png"),
+#   plot = g3,
+#   width = 8,
+#   height = 6,
+#   units = "in",
+#   dpi = 600
+# )
 
 #plot emmeans
 ED50_emm_df <- as.data.frame(species_letters) %>%
@@ -374,16 +356,14 @@ ED50_emm_df <- as.data.frame(species_letters) %>%
   )
 
 # Publication-Ready ED50 Emmeans Plot (g3)
-g4<- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
-  # Individual raw data points (jittered by Site shape)
+ed50_emm <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
   geom_jitter(
-    aes(color = Species, shape = as.factor(Site)),
+    aes(color = Species, shape = Site), # Fixed: mapped to factor column Site
     width = 0.12, 
     alpha = 0.5, 
     size = 3, 
     show.legend = TRUE
   ) +
-  # Model Estimated Marginal Means (emmean)
   geom_point(
     data = ED50_emm_df,
     aes(x = Species, y = Mean),
@@ -391,7 +371,6 @@ g4<- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
     inherit.aes = FALSE,
     show.legend = FALSE
   ) +
-  # 95% Confidence Intervals from lmer emmeans model
   geom_errorbar(
     data = ED50_emm_df,
     aes(x = Species, ymin = CI_lower, ymax = CI_upper),
@@ -400,7 +379,6 @@ g4<- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
     color = "black",
     inherit.aes = FALSE
   ) +
-  # Post-hoc Tukey significance letters positioned above upper CI limit
   geom_text(
     data = ED50_emm_df,
     aes(x = Species, y = CI_upper + 0.5, label = .group),
@@ -410,42 +388,33 @@ g4<- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
     color = "black",
     inherit.aes = FALSE
   ) +
-  # Axis Labels
   labs(
     x = "Species",
-    y = expression("Emmeans ED"[50] ~ " (°C)")
+    y = expression("Emmeans ED"[50] ~ " (°C)"),
+    color = "Species",
+    shape = "Site"
   ) +
-  # Aesthetics & Scales
-  scale_color_manual(values = species_colors, limits = species_order) +
-  scale_fill_manual(values = species_colors, limits = species_order) + 
-  scale_x_discrete(labels = species_labels, limits = species_order) +
-  scale_shape_manual(values = custom_shapes) +
-  # Publication Theme
+  scale_color_manual(values = species_colors, limits = species_order, labels = species_labels) +
+  scale_shape_manual(values = custom_shapes, limits = all_sites, drop = FALSE) + # Fixed: explicit limits & drop = FALSE
   theme_classic(base_size = 12, base_family = "sans") +
   theme(
     legend.position = "right",
+    legend.title = element_text(face = "bold", size = 11),
+    legend.text = element_text(size = 10),
     axis.title = element_text(face = "bold", size = 13, color = "black"),
     axis.text.y = element_text(size = 11, color = "black"),
     axis.text.x = element_text(size = 11, color = "black", angle = 30, hjust = 1, face = "italic"),
     axis.line = element_line(linewidth = 0.6, color = "black"),
     axis.ticks = element_line(linewidth = 0.6, color = "black"),
-    # Reduce outer plot margin padding
-    plot.margin = margin(t = 10, r = 10, b = 5, l = 10, unit = "pt")+
-    labs(  
-      color = "Species",
-      fill  = "Species",
-      shape = "Site")
+    plot.margin = margin(t = 10, r = 10, b = 5, l = 10, unit = "pt")
+  ) +
+  guides(
+    color = guide_legend(override.aes = list(alpha = 1, size = 3)),
+    shape = guide_legend(override.aes = list(alpha = 1, size = 3))
   )
 
-g4
-ggsave(
-  filename = here::here("Plots", "ED50_emmeans.png"),
-  plot = g4,
-  width = 8,
-  height = 6,
-  units = "in",
-  dpi = 600
-)
+ed50_emm
+saveRDS(ed50_emm, "Outputs/plot_ed50.rds")
 
 #Q1B.  How important are site level differences to our ESA taxa?---------------------------
 

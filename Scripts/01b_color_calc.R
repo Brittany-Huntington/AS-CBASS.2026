@@ -21,27 +21,7 @@ library(broom)
 
 mandatory_columns()
 rm(list = ls())
-
-custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
-species_colors <- c(
-  "AABR" = "#046E8F", # Muted Crimson/Rose Red (#D44D5CFF)
-  "AGLO" = "#83BA75FF", # Light Sage Teal (#9DD9D2FF)
-  "AHYA" = "#D44D5C", # Deep Ocean Blue (#046E8FFF)
-  "ICRA" = "#462255"  # Bright Amber/Orange (#FF8811FF) -- (or "#462255" for Deep Purple)
-)
-#custom_shapes <- c(23, 22, 15, 16, 17, 18, 21, 24)
-#species order
-species_order <- c("ICRA", "AGLO", "AABR", "AHYA")
-
-# Custom shapes & high-contrast colors
-custom_shapes <- c(16, 15, 17, 18, 8, 11, 9, 10)
-
-species_labels <- c(
-  "ICRA" = "I. crateriformis",
-  "AGLO" = "A. globiceps",
-  "AABR" = "A. abrotanoides",
-  "AHYA" = "A. hyacinthus"
-)
+source(here("Scripts/00_visualization_prep.R"))
 #####Load and Prep Data-----------------------------
 
 #Load metadata CSV file
@@ -131,7 +111,7 @@ write_csv(lmresults, "Outputs/color_slope.csv")
 lmresults <- lmresults %>%
   mutate(
     Species = factor(Species, levels = species_order),
-    Site = as.factor(Site)
+    (Site = factor(as.character(Site), levels = c("1", "3", "4", "5", "7", "9", "10", "11")))
   )
 
 # Fit mixed model and calculate emmeans
@@ -152,7 +132,9 @@ color_emm_df <- as.data.frame(species_letters_color) %>%
     Species = factor(Species, levels = species_order)
   )
 
-# Plotting Color Slope
+lmresults <- lmresults %>%
+  mutate(Site = factor(as.character(Site), levels = all_sites))
+
 g_color <- ggplot(lmresults, aes(x = Species, y = slope)) +
   geom_jitter(
     aes(color = Species, shape = as.factor(Site)),
@@ -199,24 +181,21 @@ g_color <- ggplot(lmresults, aes(x = Species, y = slope)) +
 g_color
 
 # Emmeans Plot for Color Slope
-g_color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
-  # Raw individual data points jittered by Site shape
+color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
   geom_jitter(
-    aes(color = Species, shape = as.factor(Site)),
+    aes(color = Species, shape = Site), # Fixed: mapped to factor column Site
     width = 0.08, 
     alpha = 0.45, 
     size = 2.5, 
-    show.legend = TRUE  # Enable legend here
+    show.legend = TRUE 
   ) +
-  # Model Estimated Marginal Means (emmean)
   geom_point(
     data = color_emm_df,
-    aes(x = Species, y = Mean, color = Species), # Mapped color so the point matches
+    aes(x = Species, y = Mean),
     size = 5,
     inherit.aes = FALSE,
-    show.legend = FALSE # Hide emmean points from clogging the species legend
+    show.legend = FALSE 
   ) +
-  # 95% Confidence Intervals from lmer model emmeans
   geom_errorbar(
     data = color_emm_df,
     aes(x = Species, ymin = CI_lower, ymax = CI_upper),
@@ -225,7 +204,6 @@ g_color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
     color = "black",
     inherit.aes = FALSE
   ) +
-  # Post-hoc significance letters directly from emmeans cld
   geom_text(
     data = color_emm_df,
     aes(x = Species, y = CI_upper + 0.2, label = .group),
@@ -235,26 +213,19 @@ g_color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
     color = "black",
     inherit.aes = FALSE
   ) +
-  # Axis & Legend Labels
   labs(
     x = "Species",
     y = expression("Emmeans Color Slope (" * Delta * "Color / °C)"),
     color = "Species",
     shape = "Site"
   ) +
-  # Formatting & Aesthetics
-  scale_color_manual(values = species_colors, limits = species_order) +
-  scale_fill_manual(values = species_colors, limits = species_order) + 
-  scale_x_discrete(
-    labels = species_labels, 
-    limits = species_order, 
-    expand = expansion(mult = c(0.08, 0.08))
-  ) +
-  scale_shape_manual(values = custom_shapes) +
-  # Theme Customizations
+  scale_color_manual(values = species_colors, limits = species_order, labels = species_labels) +
+  scale_shape_manual(values = custom_shapes, limits = all_sites, drop = FALSE) + # Fixed: explicit limits & drop = FALSE
   theme_classic(base_size = 12, base_family = "sans") +
   theme(
     legend.position = "right",
+    legend.title = element_text(face = "bold", size = 11),
+    legend.text = element_text(size = 10),
     axis.title = element_text(face = "bold", size = 13, color = "black"),
     axis.text.y = element_text(size = 11, color = "black"),
     axis.text.x = element_text(size = 11, color = "black", angle = 30, hjust = 1, face = "italic"),
@@ -262,13 +233,14 @@ g_color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
     axis.ticks = element_line(linewidth = 0.6, color = "black"),
     plot.margin = margin(t = 10, r = 10, b = 5, l = 10, unit = "pt")
   ) +
-  # Adjust legend key appearances (removes transparency on legend points)
   guides(
     color = guide_legend(override.aes = list(alpha = 1, size = 3)),
     shape = guide_legend(override.aes = list(alpha = 1, size = 3))
   )
 
-g_color_emm
+color_emm
+
+saveRDS(color_emm, "Outputs/plot_color.rds")
 
 # 1. Generate predicted regression lines for each sample using lmresults
 pred_lines <- fvfm_and_color %>%
@@ -378,3 +350,5 @@ g_slopes_ribbon <- ggplot(pred_lines, aes(x = Rel_Temperature, y = Color_mean, c
   )
 
 g_slopes_ribbon
+
+saveRDS(g_slopes_ribbon, "Outputs/color_slopes_ribbon.rds")

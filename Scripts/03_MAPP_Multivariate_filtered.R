@@ -10,55 +10,7 @@ library(caret)
 library(pvclust)
 library(patchwork)
 
-species_colors <- c(
-  "AABR" = "#046E8F", 
-  "AGLO" = "lightgreen", 
-  "AHYA" = "#D44D5C",
-  "ICRA" = "#462255"  
-)
-
-custom_shapes <- c(
-  "1"  = 23, # Diamond (border + fill)
-  "3"  = 22, # Square (border + fill)
-  "4"  = 15, # Solid Square
-  "5"  = 16, # Solid Circle
-  "7"  = 24, # Open / Bordered Triangle
-  "8"  = 18, # Solid Diamond
-  "9"  = 21, # Circle (border + fill)
-  "10" = 1,  # Open Circle
-  "11" = 17  # Solid Closed Triangle
-)
-
-metric_colors <- c(
-  "Quant (Quantum Yield)"             = "green", #2CA02C
-  "Sigma (Antenna Size)"              = "#FCF340", #FCF340
-  "Connect (Connectivity)"            = "#1F77B4", 
-  "Connect (Normalized Curves)"       = "blue", 
-  "Tau1 (Transport Kinetics 1)"       = "#17BECF", 
-  "Tau2 (Transport Kinetics 2)"       = "#9467BD", 
-  "NPQ (Non-Photochemical Quenching)" = "#8C564B",
-  "qP (Photochemical Quenching)"      = "#E377C2", 
-  "ABQ (Absorption)"                  = "#FF7F0E", #D62728
-  "qm (Max Quenching)"                = "#FF13F0", 
-  "OJIP Kinetics (Derivatives)"       = "#98DF8A", 
-  "OJIP Ratios & Area"                = "#FFBB78", 
-  "Other Metric"                      = "#7F7F7F"  
-)
-
-cluster_colors <- c(
-  "1" = "orange", 
-  "2" = "violet", 
-  "3" = "cyan"
-)
-
-# combine color maps for pheatmap
-ann_colors <- list(
-  Family  = metric_colors,
-  Species = species_colors,
-  K_3 = cluster_colors
-)
-
-
+source(here("Scripts/00_visualization_prep.R"))
 # =========================================================================
 # 1. Read in and format raw data
 # =========================================================================
@@ -322,7 +274,7 @@ pw_species_strata <- pairwise.adonis2(
 )
 # 
 cat("\n--- PAIRWISE PERMANOVA (STRATIFIED BY SITE) ---\n")
-print(pw_filtered_strata)
+print(pw_species_strata)
 
 #3. Run pairwise comparison of site
 # pw_filtered_formula <- pairwise.adonis2(
@@ -335,6 +287,7 @@ print(pw_filtered_strata)
 # 
 # cat("\n--- PAIRWISE PERMANOVA (PARTIALING OUT SITE) ---\n")
 # print(pw_filtered_formula)
+pw_filtered_strata<-pw_species_strata
 
 pw_summary_df <- map_dfr(
   names(pw_filtered_strata)[names(pw_filtered_strata) != "parent_call"], 
@@ -469,7 +422,7 @@ spp <- ggplot() +
   stat_ellipse(
     data = nmds_scores, 
     aes(x = NMDS1, y = NMDS2, color = Species, fill = Species), 
-    geom = "polygon", alpha = 0.01, level = 0.95
+    geom = "polygon", alpha = 0.1, level = 0.95
   ) +
   #centroid :
   geom_point(
@@ -477,8 +430,8 @@ spp <- ggplot() +
     aes(x = NMDS1, y = NMDS2, color = Species, fill = Species),
     shape = 4,        
      #color = "black",  
-    size = 4,        
-    stroke = 2,    
+    size = 5,        
+    stroke = 4,    
     show.legend = FALSE
   ) +
   scale_shape_manual(values = custom_shapes, name = "Site") +
@@ -505,10 +458,17 @@ spp
 # =========================================================================
 # plot by K-3 ellipses
 # =========================================================================
+#prep labels
+nmds_scores <- nmds_scores %>%
+  mutate(
+    Cluster_Label = roman_map[as.character(K_3)],
+    Cluster_Label = factor(Cluster_Label, levels = target_levels),
+    Site          = factor(as.character(Site), levels = c("1", "3", "4", "5", "7", "9", "10", "11"))
+  )
 #calc centroids
 k3_centroids <- nmds_scores %>%
-  filter(!is.na(K_3)) %>%
-  group_by(K_3) %>%
+  filter(!is.na(Cluster_Label)) %>%
+  group_by(Cluster_Label) %>%
   summarize(
     NMDS1 = mean(NMDS1, na.rm = TRUE),
     NMDS2 = mean(NMDS2, na.rm = TRUE),
@@ -519,40 +479,45 @@ kplot <- ggplot() +
   # Points: Color by Species, Shape by Site
   geom_point(
     data = nmds_scores, 
-    aes(x = NMDS1, y = NMDS2, color = Species, shape = factor(Site)), 
-    size = 2.8, alpha = 0.75
+    aes(x = NMDS1, y = NMDS2, color = Species, shape = Site), 
+    size = 2.8, 
+    alpha = 0.75
   ) + 
   scale_shape_manual(values = custom_shapes, name = "Site") +
-  scale_color_manual(values = species_colors, name = "Species") +
+  scale_color_manual(values = species_colors, limits = species_order, labels = species_labels, name = "Species") +
   
-  #  scale layer for Ellipses (K_3 functional clusters)
+  # Scale layer for Ellipses (K_3 functional clusters)
   new_scale_color() +
   new_scale_fill() +
-  #95 conf ellipse:
+  
+  # 95% Confidence Ellipses
   stat_ellipse(
-    data = nmds_scores %>% filter(!is.na(K_3)),
-    aes(x = NMDS1, y = NMDS2, color = factor(K_3), fill = factor(K_3)),
-    geom = "polygon", alpha = 0.01, level = 0.95
+    data = nmds_scores %>% filter(!is.na(Cluster_Label)),
+    aes(x = NMDS1, y = NMDS2, color = Cluster_Label, fill = Cluster_Label),
+    geom = "polygon", 
+    alpha = 0.1, 
+    level = 0.95
   ) +
-  #centroid :
+  
+  # Centroid Markers
   geom_point(
     data = k3_centroids,
-    aes(x = NMDS1, y = NMDS2, color = factor(K_3)),
+    aes(x = NMDS1, y = NMDS2, color = Cluster_Label),
     shape = 4,        
-     #color = factor(K_3),  
-    size = 4,          # Prominent marker size
-    stroke = 2,      # Border line thickness
+    size = 5,          
+    stroke = 4,      
     show.legend = FALSE
   ) +
-  scale_color_manual(values = cluster_colors, name = "Hclust Group (K_3)") +
-  scale_fill_manual(values = cluster_colors, name = "Hclust Group (K_3)") +
+  scale_color_manual(values = cluster_colors, limits = target_levels, name = "Photophysiological Cluster") +
+  scale_fill_manual(values = cluster_colors, limits = target_levels, name = "Photophysiological Cluster") +
   
-  # New scale layer for envfit vectors
+  # Scale layer for envfit vectors
   new_scale_color() +
   geom_segment(
     data = top_vectors_clean, 
     aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Metric_Category),
-    arrow = arrow(length = unit(0.20, "cm")), linewidth = 0.85
+    arrow = arrow(length = unit(0.20, "cm")), 
+    linewidth = 0.85
   ) +
   geom_text(
     data = top_vectors_clean,
@@ -560,16 +525,22 @@ kplot <- ggplot() +
     size = 3
   ) +
   scale_color_manual(values = metric_colors, name = "Trait Family", drop = FALSE) +
+  
+  # Formatting
   coord_cartesian(clip = "off") +
   theme_bw() +
-  theme(plot.margin = unit(c(15, 25, 15, 25), "pt")) +
+  theme(
+    plot.margin  = unit(c(15, 25, 15, 25), "pt"),
+    legend.text  = element_text(size = 10),
+    legend.title = element_text(face = "bold", size = 11)
+  ) +
   labs(
-    title = paste0("Hclust Groupings (K=3)"), 
+    title = "Hclust Groupings (K = 3)", 
     x     = "nMDS Dimension 1", 
-    y     = NULL
+    y     = "nMDS Dimension 2"
   )
 
-kplot
+print(kplot)
 
 combined_plot <- (spp + kplot) +
   plot_layout(ncol = 2, guides = "collect") +
@@ -582,7 +553,7 @@ combined_plot <- (spp + kplot) +
 print(combined_plot)
 
 ggsave(
-  filename = here("Plots", paste0("nMDS_filtered_top10",".png")),
+  filename = here("Plots", paste0("Fig4_nMDS_filtered_top10",".png")),
   plot     = combined_plot,
   width    = 16.0,
   height   = 9.0,
