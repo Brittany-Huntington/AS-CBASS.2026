@@ -19,3 +19,9 @@
 *.RData
 *.RData
 .RDataTmp*
+Data/
+Outputs/
+Plots/
+*.csv
+*.xlsx
+*.png
