@@ -206,15 +206,15 @@ g_color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
     width = 0.08, 
     alpha = 0.45, 
     size = 2.5, 
-    show.legend = FALSE
+    show.legend = TRUE  # Enable legend here
   ) +
   # Model Estimated Marginal Means (emmean)
   geom_point(
     data = color_emm_df,
-    aes(x = Species, y = Mean, color = Species),
+    aes(x = Species, y = Mean, color = Species), # Mapped color so the point matches
     size = 5,
     inherit.aes = FALSE,
-    show.legend = FALSE
+    show.legend = FALSE # Hide emmean points from clogging the species legend
   ) +
   # 95% Confidence Intervals from lmer model emmeans
   geom_errorbar(
@@ -235,10 +235,12 @@ g_color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
     color = "black",
     inherit.aes = FALSE
   ) +
-  # Axis Labels
+  # Axis & Legend Labels
   labs(
     x = "Species",
-    y = expression("Emmeans Color Slope (" * Delta * "Color / °C)")
+    y = expression("Emmeans Color Slope (" * Delta * "Color / °C)"),
+    color = "Species",
+    shape = "Site"
   ) +
   # Formatting & Aesthetics
   scale_color_manual(values = species_colors, limits = species_order) +
@@ -252,13 +254,18 @@ g_color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
   # Theme Customizations
   theme_classic(base_size = 12, base_family = "sans") +
   theme(
-    legend.position = "none",
+    legend.position = "right",
     axis.title = element_text(face = "bold", size = 13, color = "black"),
     axis.text.y = element_text(size = 11, color = "black"),
     axis.text.x = element_text(size = 11, color = "black", angle = 30, hjust = 1, face = "italic"),
     axis.line = element_line(linewidth = 0.6, color = "black"),
     axis.ticks = element_line(linewidth = 0.6, color = "black"),
     plot.margin = margin(t = 10, r = 10, b = 5, l = 10, unit = "pt")
+  ) +
+  # Adjust legend key appearances (removes transparency on legend points)
+  guides(
+    color = guide_legend(override.aes = list(alpha = 1, size = 3)),
+    shape = guide_legend(override.aes = list(alpha = 1, size = 3))
   )
 
 g_color_emm
