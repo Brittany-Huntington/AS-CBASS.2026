@@ -239,7 +239,7 @@ Alls.trans   <- predict(Alls.transit, Alls.cntn)
 cat(sprintf("Pre-processed Matrix: %d samples x %d metrics\n", 
             nrow(Alls.trans), ncol(Alls.trans)))
 
-# Final clean matrix ready for PERMANOVA / Clustering
+# unfiltered clean matrix ready for PERMANOVA / Clustering
 Alls.cor_clean <- as.matrix(Alls.trans)
 
 # Calculate Pearson correlation matrix across metrics
