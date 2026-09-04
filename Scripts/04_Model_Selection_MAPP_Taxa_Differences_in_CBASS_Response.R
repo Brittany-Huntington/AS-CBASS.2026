@@ -263,7 +263,7 @@ plot_k3ms <- ggplot() +
     data = df_modeling, 
     aes(x = Cluster_Label, y = ED50, color = Species, shape = Site),
     width = 0.12, 
-    alpha = 0.5, 
+    alpha = 0.8, 
     size = 3
   ) +
   # Layer B: Model Estimated Marginal Means & 95% CIs
@@ -317,5 +317,11 @@ plot_k3ms <- ggplot() +
 
 print(plot_k3ms)
 # Save High-Res PDF/PNG Exports
-ggsave(here::here("Plots", "ED50_K3_emmeans_clusters.pdf"), plot = plot_k3ms, width = 8, height = 6, device = cairo_pdf)
-ggsave(here::here("Plots", "ED50_K3_emmeans_clusters.png"), plot = plot_k3ms, width = 8, height = 6, dpi = 600)
+ggsave(
+  filename = here("Plots", "Fig3_ED50_by_Cluster.png"),
+  plot     = plot_k3ms,
+  width    = 8,
+  height   = 6,
+  units    = "in",
+  dpi      = 600
+)
