@@ -30,6 +30,7 @@ library(igraph)
 library(fs)
 library(here)
 library(stringr)
+library(janitor)
 #library(DescTools)
 
 
@@ -92,10 +93,11 @@ ed <- ed50 %>%
   left_join(color_metrics, by = c("SampleID_clean" = "SampleID")) %>%
   left_join(extra_metadata, by = "SampleID_clean") %>%
   relocate(SampleID_clean, Site, Species, ED5, ED50, ED95)
-write.csv(ed, here("Outputs/ed50_colorslope_metadata.csv"))
+#write.csv(ed, here("Outputs/ed50_colorslope_metadata.csv"))
 
 # Read the mapping file
 sample_meta_raw <- read.csv(here("Data", "ESA_coral_data_entry_2026-Collections.csv"), check.names = FALSE)
+sample_meta_raw <- sample_meta_raw[, !is.na(names(sample_meta_raw)) & names(sample_meta_raw) != ""]
 mapplist        <- read.csv(here("Data", "MAPP_Metadata-Sheet1.csv"), check.names = FALSE)
 
 sample_meta_prepped <- sample_meta_raw %>%
@@ -103,7 +105,6 @@ sample_meta_prepped <- sample_meta_raw %>%
   mutate(
     Bag_number = as.integer(`Bag #`),
     Site       = as.integer(str_extract(Site, "\\d+")),
-    # Ensure Date is character and trimmed (e.g., "20260210")
     Date       = trimws(as.character(Date)),
     Species    = trimws(toupper(Species))
   )
@@ -128,7 +129,7 @@ sample_metadata <- sample_meta_prepped %>%
       toupper()
   )
 
-write.csv(sample_metadata, file = here("Outputs", "AS26_MAPPmetadata.csv"), row.names = TRUE)
+#write.csv(sample_metadata, file = here("Outputs", "AS26_MAPPmetadata.csv"), row.names = TRUE)
 
 
 ```
@@ -153,10 +154,10 @@ metric_list <- map(file_list, ~ read.csv(.x)[, 7])
 names(metric_list) <- path_file(file_list) # Retains raw file names for lookup_df
 
 # 4. Combine into wide photophysiology frame
-photophys <- bind_cols(photophys_meta, as.data.frame(metric_list))
+photophys_raw <- bind_cols(photophys_meta, as.data.frame(metric_list))
 
 # Save raw compiled photophys dataset
-write.csv(photophys, file = here("Outputs", "photophys_compiled.csv"), row.names = FALSE)
+#write.csv(photophys, file = here("Outputs", "photophys_compiled.csv"), row.names = FALSE)
 
 ```
 
@@ -248,13 +249,15 @@ descrCor <- cor(Alls.cor_clean)
 save(Alls.cor_clean, file = here("Data", "Alls.cor_clean.RData"))
 
 #alls<-load(here("Data/Alls.cor_clean.RData"))
+```
 
+
+```{r}
 # PERMANOVA Matrix (Samples as Rows, Metrics as Columns)
-# Alls.cor_clean is ALREADY in this format and fully pre-processed!
 permanova_matrix <- Alls.cor_clean
 storage.mode(permanova_matrix) <- "numeric"
 
-write.csv(permanova_matrix, file = here("Outputs", "permanova_matrix_clean.csv"), row.names = TRUE)
+#write.csv(permanova_matrix, file = here("Outputs", "permanova_matrix_clean.csv"), row.names = TRUE)
 
 #make a metrics family column
 metric_names <- colnames(permanova_matrix)
@@ -287,6 +290,7 @@ ed_aligned <- ed %>%
 # Set row names of metadata to SampleID_clean for direct mapping in pheatmap/vegan
 rownames(ed_aligned) <- ed_aligned$SampleID_clean
 
+#save for downstream analyses
 save(
   widephoto,
   lookup_df,
