@@ -60,7 +60,7 @@ metric_colors <- c(
   "Tau2 (Transport Kinetics 2)"       = "#9467BD", 
   "NPQ (Non-Photochemical Quenching)" = "#8C564B",
   "qP (Photochemical Quenching)"      = "#E377C2", 
-  "ABQ (Absorption)"                  = "#FF7F0E",
+  "ABQ (Antenna Bed Quenching)"                  = "#FF7F0E",
   "qm (Max Quenching)"                = "#FF13F0", 
   "OJIP Kinetics (Derivatives)"       = "#98DF8A", 
   "OJIP Ratios & Area"                = "#FFBB78", 
