@@ -275,7 +275,7 @@ metric_families <- data.frame(
     grepl("tau2|tau_2|\\bt2\\b", metric_names, ignore.case = TRUE)        ~ "Tau2 (Transport Kinetics 2)",
     grepl("npq", metric_names, ignore.case = TRUE)                        ~ "NPQ (Non-Photochemical Quenching)",
     grepl("qp", metric_names, ignore.case = TRUE)                         ~ "qP (Photochemical Quenching)",
-    grepl("abq", metric_names, ignore.case = TRUE)                        ~ "ABQ (Absorption)",
+    grepl("abq", metric_names, ignore.case = TRUE)                        ~ "ABQ (Antenna Bed Quenching)",
     grepl("qm", metric_names, ignore.case = TRUE)                         ~ "qm (Max Quenching)",
     TRUE                                                                  ~ "Other Metric"
   ),
@@ -290,12 +290,49 @@ ed_aligned <- ed %>%
 # Set row names of metadata to SampleID_clean for direct mapping in pheatmap/vegan
 rownames(ed_aligned) <- ed_aligned$SampleID_clean
 
+
+# calc Pearson correlation matrix across metrics
+cor_matrix <- cor(permanova_matrix, use = "pairwise.complete.obs", method = "pearson")
+cor_matrix[is.na(cor_matrix) | is.nan(cor_matrix)] <- 0
+
+# run findCorrelation at 0.90
+cor_cutoff <- 0.90
+high_cor_idx <- findCorrelation(cor_matrix, cutoff = cor_cutoff)
+
+# id traits to retain (handles edge case where high_cor_idx is empty)
+if (length(high_cor_idx) > 0) {
+  retained_trait_names <- colnames(permanova_matrix)[-high_cor_idx]
+} else {
+  retained_trait_names <- colnames(permanova_matrix)
+}
+
+cat("Total initial traits:", ncol(permanova_matrix), "\n")
+cat("Traits retained after correlation (r =", cor_cutoff, ") filtering:", length(retained_trait_names), "\n")
+
+# Subset filtered traits (Samples x Retained Metrics)
+permanova_matrix_filtered <- permanova_matrix[, retained_trait_names, drop = FALSE]
+
+# Ensure metadata strictly matches the exact sample order of the filtered matrix
+meta_filtered <- ed_aligned %>%
+  filter(SampleID_clean %in% rownames(permanova_matrix_filtered)) %>%
+  arrange(match(SampleID_clean, rownames(permanova_matrix_filtered)))
+
+# Verify row order is identical (CRITICAL for vegan functions)
+stopifnot(identical(rownames(permanova_matrix_filtered), meta_filtered$SampleID_clean))
+
+# save(
+#   list = c(ls(), "permanova_matrix_filtered"), 
+#   file = here("Outputs", "photophys_preprocessed_data.RData")
+# )
+
+
 #save for downstream analyses
 save(
   widephoto,
   lookup_df,
   ed_aligned,
-  permanova_matrix,
+  #permanova_matrix,
+  permanova_matrix_filtered,
   metric_families,
   file = here("Outputs", "photophys_preprocessed_data.RData")
 )

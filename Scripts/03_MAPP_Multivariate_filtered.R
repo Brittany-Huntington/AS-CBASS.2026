@@ -16,36 +16,6 @@ source(here("Scripts/00_visualization_prep.R"))
 # =========================================================================
 load(here("Outputs", "photophys_preprocessed_data.RData"))
 
-# calc Pearson correlation matrix across metrics
-cor_matrix <- cor(permanova_matrix, use = "pairwise.complete.obs", method = "pearson")
-cor_matrix[is.na(cor_matrix) | is.nan(cor_matrix)] <- 0
-
-# run findCorrelation at 0.99
-cor_cutoff <- 0.99
-high_cor_idx <- findCorrelation(cor_matrix, cutoff = cor_cutoff)
-
-# id traits to retain (handles edge case where high_cor_idx is empty)
-if (length(high_cor_idx) > 0) {
-  retained_trait_names <- colnames(permanova_matrix)[-high_cor_idx]
-} else {
-  retained_trait_names <- colnames(permanova_matrix)
-}
-
-cat("Total initial traits:", ncol(permanova_matrix), "\n")
-cat("Traits retained after correlation (r =", cor_cutoff, ") filtering:", length(retained_trait_names), "\n")
-
-# Subset filtered traits (Samples x Retained Metrics)
-permanova_matrix_filtered <- permanova_matrix[, retained_trait_names, drop = FALSE]
-
-# Ensure metadata strictly matches the exact sample order of the filtered matrix
-meta_filtered <- ed_aligned %>%
-  filter(SampleID_clean %in% rownames(permanova_matrix_filtered)) %>%
-  arrange(match(SampleID_clean, rownames(permanova_matrix_filtered)))
-
-# Verify row order is identical (CRITICAL for vegan functions)
-stopifnot(identical(rownames(permanova_matrix_filtered), meta_filtered$SampleID_clean))
-
-
 # =================================
 # hclust
 # =================================
@@ -54,14 +24,14 @@ stopifnot(identical(rownames(permanova_matrix_filtered), meta_filtered$SampleID_
 #   t(permanova_matrix_filtered),
 #   method.hclust = "ward.D",
 #   method.dist   = "canberra",
-#   nboot         = 1000,
+#   nboot         = 10000,
 #   parallel      = TRUE
 # )
-# #Save fit object
-# saveRDS(fit_cbb, here("Outputs", "fit_pvclust_99.rds"))
+#Save fit object
+#saveRDS(fit_cbb, here("Outputs", "fit_pvclust_90_10000bs.rds"))
 
 #or load
-fit_cbb<-readRDS(here("Outputs", "fit_pvclust_99.rds"))
+fit_cbb<-readRDS(here("Outputs", "fit_pvclust_90.rds"))
 # get hclust tree from pvclust fit
 my_hclust <- fit_cbb$hclust
 original_labels <- my_hclust$labels # SampleIDs (e.g., "11_AABR_1")
@@ -76,19 +46,23 @@ k_lookup <- as.data.frame(k_matrix) %>%
   mutate(across(starts_with("K_"), ~ factor(paste0("Cluster_", .x))))
 
 # join all K_2 through K_15 cluster columns into meta_filtered
-meta_filtered <- meta_filtered %>%
+meta_filteredK <- meta_filtered %>%
   left_join(k_lookup, by = "SampleID_clean")
 
 # verify row alignment
-stopifnot(identical(rownames(permanova_matrix_filtered), meta_filtered$SampleID_clean))
+stopifnot(identical(rownames(permanova_matrix_filtered), meta_filteredK$SampleID_clean))
 
 cat("\n--- K_3 CLUSTER DISTRIBUTION ACROSS SPECIES ---\n")
-print(table(meta_filtered$K_3, meta_filtered$Species))
-
+print(table(meta_filteredK$K_3, meta_filteredK$Species))
+#save in rds
+save(
+  list = c(ls(), "meta_filteredK"), 
+  file = here("Outputs", "photophys_preprocessed_data.RData")
+)
 #save in output
-saveRDS(meta_filtered, here("Outputs", "master_cluster_metadata_K2_K15.rds"))
-write.csv(meta_filtered, here("Outputs", "master_cluster_metadata_K2_K15.csv"), 
-  row.names = FALSE)
+# saveRDS(meta_filteredK, here("Outputs", "master_cluster_metadata_K2_K15.rds"))
+# write.csv(meta_filteredK, here("Outputs", "master_cluster_metadata_K2_K15.csv"), 
+#   row.names = FALSE)
 
 # transpose so metrics are rows and samples are columns
 heatmap_matrix <- t(permanova_matrix_filtered)
@@ -126,12 +100,25 @@ annotation_row         <- annotation_row[sorted_order, , drop = FALSE]
 # =========================================================================
 
 # Match ed_aligned metadata directly to tree labels
-annotation_col <- meta_filtered %>%
+annotation_col <- meta_filteredK %>%
   filter(SampleID_clean %in% colnames(heatmap_matrix_scaled)) %>%
   arrange(match(SampleID_clean, colnames(heatmap_matrix_scaled))) %>%
   column_to_rownames("SampleID_clean") %>%
   dplyr::select(Species, any_of(c("K_3")), ED50) %>%
   mutate(across(c(Species, any_of(c("K_3"))), as.factor))
+
+annotation_col <- annotation_col %>%
+  mutate(
+    K_3 = roman_map[as.character(K_3)],
+    K_3 = factor(K_3, levels = target_levels)
+  )
+
+# Ensure ann_colors matches target_levels ("Cluster I", "Cluster II", "Cluster III")
+ann_colors$K_3 <- c(
+  "Cluster I"   = "violet",
+  "Cluster II"  = "orange",
+  "Cluster III" = "cyan"
+)
 
 # =========================================================================
 # 5. HEATMAP
@@ -171,6 +158,18 @@ dev.off()
 # =========================================================================
 # PERMANOVA & Dispersion Tests
 # =========================================================================
+# Homogeneity test of Multivariate Dispersion (BETADISPER)
+dist_filtered <- vegdist(permanova_matrix_filtered, method = "euclidean")
+bd_filtered   <- betadisper(dist_filtered, meta_filteredK$Species)
+bd_filtered_site  <- betadisper(dist_filtered, meta_filteredK$Site)
+anova_bd      <- anova(bd_filtered)
+anova_bd_site <- anova(bd_filtered_site)
+
+cat("\n--- FILTERED species DISPERSION TEST p-value:", anova_bd[1, "Pr(>F)"], "---\n")
+#pass
+cat("\n--- FILTERED site DISPERSION TEST p-value:", anova_bd_site[1, "Pr(>F)"], "---\n")
+#does NOT pass
+
 # # spp PERMANOVA
 # permanova_filtered <- adonis2(
 #   permanova_matrix_filtered ~ Species, 
@@ -182,134 +181,106 @@ dev.off()
 # print(permanova_filtered)
 
 # Species and site global PERMANOVA
-permanova_filtered <- adonis2(
-  permanova_matrix_filtered ~ factor(Site) + Species, 
-  data         = meta_filtered, 
-  method       = "euclidean", 
-  by = "terms", #site and spp
+# permanova_spp_filtered <- adonis2(
+#   permanova_matrix_filtered ~ Species, 
+#   data         = meta_filtered, 
+#   method       = "euclidean", 
+#   by = "terms", #site and spp
+#   permutations = 999
+# )
+# cat("\n--- FILTERED PERMANOVA RESULTS w spp  ---\n")
+# print(permanova_spp_filtered)
+
+#BH notes:  vegan can't do random effects AND the order of the factors matter when running by = "terms". So this model design asks:
+#how much multivariate variation in the photophys data is explained first by Site?, and then
+#how much additional variation is explained by Species, after Site has already be accounted for?
+#in other words: "Does a species effect persist after accounting for site-to-site variation?"
+
+
+#If instead you what to ask: Does photophys differences exists among species, after accounting for differences among sites?
+#and vice versa for look at site; both factors get their own 'adjusted' test
+#then us by 'margin' to look at partial-effects
+
+#round 2: using by 'margin' to get partial effects of each term rather than sequential sum of squares
+permanova_spp_site <- adonis2(
+  permanova_matrix_filtered ~ Species + factor(Site),
+  data = meta_filtered,
+  method = "euclidean",
+  by = "margin", #since spp are unbalanced
+  strata       = meta_filtered$Site, #permutations constrained within sites
   permutations = 999
 )
-cat("\n--- FILTERED PERMANOVA RESULTS w spp and site ---\n")
-print(permanova_filtered)
 
-# Homogeneity test of Multivariate Dispersion (BETADISPER)
-dist_filtered <- vegdist(permanova_matrix_filtered, method = "euclidean")
-bd_filtered   <- betadisper(dist_filtered, meta_filtered$Species)
-bd_filtered_site  <- betadisper(dist_filtered, meta_filtered$Site)
-anova_bd      <- anova(bd_filtered)
-anova_bd_site <- anova(bd_filtered_site)
-
-cat("\n--- FILTERED species DISPERSION TEST p-value:", anova_bd[1, "Pr(>F)"], "---\n")
-
-cat("\n--- FILTERED site DISPERSION TEST p-value:", anova_bd_site[1, "Pr(>F)"], "---\n")
-#both pass
+permanova_spp_site
+#Species explains 15% of the multivariate photophysiological variation after accounting for Site.
+#Site not signigicant
 
 #######################
 # Pairwise PERMANOVA ##
 #######################
-#set up function
-pairwise.adonis2 <- function(x, data, strata = NULL, nperm = 999, ... ) {
-  ststri <- ifelse(is.null(strata), 'Null', strata)
-  fostri <- as.character(x)
-  
-  x1 <- x
-  lhs <- eval(x1[[2]], environment(x1), globalenv())
-  environment(x1) <- environment()
-  rhs <- x1[[3]]
-  
-  x1[[2]] <- NULL
-  rhs.frame <- model.frame(x1, data, drop.unused.levels = TRUE)
-  co <- combn(unique(as.character(rhs.frame[, 1])), 2)
-  
-  nameres <- c('parent_call')
-  for (elem in 1:ncol(co)){
-    nameres <- c(nameres, paste(co[1, elem], co[2, elem], sep = '_vs_'))
-  }
-  
-  res <- vector(mode = "list", length = length(nameres))
-  names(res) <- nameres
-  res['parent_call'] <- list(paste(fostri[2], fostri[1], fostri[3], ', strata =', ststri, ', permutations', nperm))
-  
-  for(elem in 1:ncol(co)){
-    if(inherits(eval(lhs), 'dist')){
-      xred <- as.dist(as.matrix(eval(lhs))[rhs.frame[, 1] %in% c(co[1, elem], co[2, elem]),
-                                           rhs.frame[, 1] %in% c(co[1, elem], co[2, elem])])
-    } else {
-      xred <- eval(lhs)[rhs.frame[, 1] %in% c(co[1, elem], co[2, elem]), ]
-    }
-    
-    mdat1 <- data[rhs.frame[, 1] %in% c(co[1, elem], co[2, elem]), ]
-    
-    if(length(rhs) == 1){
-      xnew <- as.formula(paste('xred', as.character(rhs), sep = '~'))
-    } else {
-      xnew <- as.formula(paste('xred', paste(rhs[-1], collapse = as.character(rhs[1])), sep = '~'))
-    }
-    
-    if(is.null(strata)){
-      ad <- adonis2(xnew, data = mdat1, ... )
-    } else {
-      perm <- how(nperm = nperm)
-      setBlocks(perm) <- with(mdat1, mdat1[, ststri])
-      ad <- adonis2(xnew, data = mdat1, permutations = perm, ... )
-    }
-    
-    res[nameres[elem + 1]] <- list(ad[1:5])
-  }
-  class(res) <- c("pwadstrata", "list")
-  return(res)
-}
-# 1. Run Pairwise PERMANOVA for species only (dont want bc site explains 17% of variance per global permanova)
-# pw_filtered <- pairwise.adonis2(permanova_matrix_filtered ~ Species, data = meta_filtered, method = "euclidean")
-# cat("\n--- FILTERED PAIRWISE PERMANOVA ---\n")
-# print(pw_filtered)
 
-# 2. Run Pairwise PERMANOVA for spp, stratified by site
-pw_species_strata <- pairwise.adonis2(
-  permanova_matrix_filtered ~ Species, 
-  data    = meta_filtered, 
-  strata  = "Site", 
-  method  = "euclidean",
-  nperm   = 999
+#fr BH round 2: using by 'margin' to get partial effects of each term rather than sequential sum of squares
+permanova_species <- adonis2(
+  permanova_matrix_filtered ~ Species + factor(Site),
+  data = meta_filtered,
+  method = "euclidean",
+  by = "margin", #need this bc. spp unbalances across sites.measures what Species explains after accounting for Site bias.
+  strata       = meta_filtered$Site,  # Controls for site dispersion heterogeneity
+  #excluding strata results in site not being significant!
+  permutations = 999
 )
-# 
-cat("\n--- PAIRWISE PERMANOVA (STRATIFIED BY SITE) ---\n")
-print(pw_species_strata)
 
-#3. Run pairwise comparison of site
-# pw_filtered_formula <- pairwise.adonis2(
-#   permanova_matrix_filtered ~  factor(Site), 
-#   data   = meta_filtered,
-#   strata  = "Species",
-#   method = "euclidean",
-#   nperm  = 999
-# )
-# 
-# cat("\n--- PAIRWISE PERMANOVA (PARTIALING OUT SITE) ---\n")
-# print(pw_filtered_formula)
-pw_filtered_strata<-pw_species_strata
+# Since site is nt sig, only need posthoc between spp
+# Run pairwise comparison of site
+# 1. Get all unique species pairs
+sp_pairs <- combn(unique(as.character(meta_filtered$Species)), 2, simplify = FALSE)
 
-pw_summary_df <- map_dfr(
-  names(pw_filtered_strata)[names(pw_filtered_strata) != "parent_call"], 
-  function(pair_name) {
-    res <- pw_filtered_strata[[pair_name]]
-    data.frame(
-      Comparison = pair_name,
-      Df         = res$Df[1],
-      SumOfSqs   = round(res$SumOfSqs[1], 2),
-      R2         = round(res$R2[1], 4),
-      F_stat     = round(res$F[1], 2),
-      p_val      = res$`Pr(>F)`[1]
-    )
-  }
-) %>%
+# 2. Iterate over pairs matching global adonis2 structure
+pw_species_margin <- map_dfr(sp_pairs, function(pair) {
+  
+  # Subset data for the current pair
+  sub_idx  <- meta_filtered$Species %in% pair
+  sub_meta <- meta_filtered[sub_idx, ]
+  sub_mat  <- permanova_matrix_filtered[sub_idx, ]
+  
+  # Ensure clean factor drops
+  sub_meta$Species <- factor(sub_meta$Species, levels = pair)
+  sub_meta$Site    <- factor(sub_meta$Site)
+  
+  # Run identical marginal model with site strata
+  res <- adonis2(
+    sub_mat ~ Species + factor(Site),
+    data         = sub_meta,
+    method       = "euclidean",
+    by           = "margin",
+    strata       = sub_meta$Site,
+    permutations = 999
+  )
+  
+  # Extract Species term (row 1)
+  data.frame(
+    Comparison = paste(pair[1], "vs", pair[2]),
+    Df         = res$Df[1],
+    SumOfSqs   = round(res$SumOfSqs[1], 2),
+    R2         = round(res$R2[1], 4),
+    F_stat     = round(res$F[1], 2),
+    p_val      = res$`Pr(>F)`[1]
+  )
+}) %>%
   filter(!is.na(p_val)) %>%
   mutate(
-    p_adj = round(p.adjust(p_val, method = "BH"), 4)
+    p_adj  = round(p.adjust(p_val, method = "BH"), 4),
+    Signif = case_when(
+      p_adj < 0.001 ~ "***",
+      p_adj < 0.01  ~ "**",
+      p_adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    )
   )
 
-cat("\n--- PAIRWISE PERMANOVA SUMMARY TABLE ---\n")
-print(pw_summary_df)
+cat("\n--- PAIRWISE SPECIES PERMANOVA (MARGINAL & STRATIFIED) ---\n")
+pw_species_margin<-pw_species_margin%>% 
+  arrange(desc(R2)) 
 
 
 # =========================================================================
@@ -329,7 +300,7 @@ nmds_filtered <- metaMDS(
 cat("\nFiltered nMDS Stress Value:", nmds_filtered$stress, "\n")
 
 # Fit vectors for retained traits
-#ef_filtered <- envfit(nmds_filtered, permanova_matrix_filtered, permutations = 999)
+ef_filtered <- envfit(nmds_filtered, permanova_matrix_filtered, permutations = 999)
 #saveRDS(ef_filtered, here("Outputs", "ef_filtered.rds"))
 ef_filtered <- readRDS(here("Outputs", "ef_filtered.rds"))
 
@@ -352,7 +323,7 @@ print(top_vectors)
 
 nmds_scores <- as.data.frame(scores(nmds_filtered, display = "sites")) %>%
   mutate(SampleID_clean = rownames(permanova_matrix_filtered)) %>%
-  left_join(meta_filtered, by = "SampleID_clean")
+  left_join(meta_filteredK, by = "SampleID_clean")
 
 max_site_coord   <- max(abs(c(nmds_scores$NMDS1, nmds_scores$NMDS2)))
 max_vector_coord <- max(sqrt(top_vectors$NMDS1^2 + top_vectors$NMDS2^2))
@@ -374,32 +345,32 @@ top_vectors_clean <- top_vectors %>%
 
 ############################################
 #plot w no ellipses
-p <- ggplot() +
-  geom_point(
-    data = nmds_scores, 
-    aes(x = NMDS1, y = NMDS2, color = Species, shape = factor(Site)), 
-    size = 2.8, alpha = 0.75
-  ) + 
-  scale_shape_manual(values = custom_shapes, name = "Site") +
-  scale_color_manual(values = species_colors, name = "Species") +
-  scale_fill_manual(values = species_colors, name = "Species") +
-  new_scale_color() +
-  geom_segment(
-    data = top_vectors_clean, 
-    aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Metric_Category),
-    arrow = arrow(length = unit(0.20, "cm")), linewidth = 0.85
-  ) +
-  geom_text(
-    data = top_vectors_clean,
-    aes(x = NMDS1_scaled * 1.10, y = NMDS2_scaled * 1.10, label = Metric),
-    size = 3
-  ) +
-  scale_color_manual(values = metric_colors, name = "Trait Family") +
-  coord_cartesian(clip = "off") +
-  theme_bw() +
-  theme(plot.margin = unit(c(15, 25, 15, 25), "pt"))+
-  labs( x = "nMDS Dimension 1", y = "nMDS Dimension 2")
-p
+# p <- ggplot() +
+#   geom_point(
+#     data = nmds_scores, 
+#     aes(x = NMDS1, y = NMDS2, color = Species, shape = factor(Site)), 
+#     size = 2.8, alpha = 0.75
+#   ) + 
+#   scale_shape_manual(values = custom_shapes, name = "Site") +
+#   scale_color_manual(values = species_colors, name = "Species") +
+#   scale_fill_manual(values = species_colors, name = "Species") +
+#   new_scale_color() +
+#   geom_segment(
+#     data = top_vectors_clean, 
+#     aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Metric_Category),
+#     arrow = arrow(length = unit(0.20, "cm")), linewidth = 0.85
+#   ) +
+#   geom_text(
+#     data = top_vectors_clean,
+#     aes(x = NMDS1_scaled * 1.10, y = NMDS2_scaled * 1.10, label = Metric),
+#     size = 3
+#   ) +
+#   scale_color_manual(values = metric_colors, name = "Trait Family") +
+#   coord_cartesian(clip = "off") +
+#   theme_bw() +
+#   theme(plot.margin = unit(c(15, 25, 15, 25), "pt"))+
+#   labs( x = "nMDS Dimension 1", y = "nMDS Dimension 2")
+# p
 
 # =========================================================================
 # plot spp ellipses
@@ -590,4 +561,4 @@ while(!is.null(dev.list())) dev.off()
 dev.new()
 
 # 3. Print your plot object directly
-print(spp)
+print(p)
