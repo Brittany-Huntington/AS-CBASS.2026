@@ -78,7 +78,7 @@ movingAverage <- function(x, n=1, centered=FALSE)
 ```{r load metadata}
 #read in ed50 data (to know which samples were used in cbass) + to join
 ed50<-read.csv(here("Data", "EDsdf-all.csv"))
-color<- read.csv(here("Data", "color_slope.csv"))
+color<- read.csv(here("Outputs", "color_slope.csv"))
 # colony_metadata<-read.csv(here ("Data/TUT_experimental_data.csv"))
 cbass_metadata<-read.csv(here("Data", "full_cbass_dataset.csv"))
 cbass_meta_clean <- cbass_metadata %>%
@@ -86,9 +86,9 @@ cbass_meta_clean <- cbass_metadata %>%
 
 #clean and merge metadata
 extra_metadata <- cbass_meta_clean %>%
-  select(SampleID_clean, Tank_color, Size_cm, Partial_mortality, Colony_depth_ft, DW)
+  dplyr::select(SampleID_clean, Tank_color, Size_cm, Partial_mortality, Colony_depth_ft, DW)
 color_metrics <- color %>%
-  select(SampleID, color_int = int, color_slope = slope, color_r2 = r2, color_p = p)
+  dplyr::select(SampleID, color_int = int, color_slope = slope, color_r2 = r2, color_p = p)
 ed <- ed50 %>%
   left_join(color_metrics, by = c("SampleID_clean" = "SampleID")) %>%
   left_join(extra_metadata, by = "SampleID_clean") %>%
@@ -119,7 +119,7 @@ mapplist_prepped <- mapplist %>%
 sample_metadata <- sample_meta_prepped %>%
   left_join(
     mapplist_prepped %>% 
-      select(Bag_number, Species, Date, Genotype, Latitude, Longitude, Cookie_no, Sophie) %>%
+      dplyr::select(Bag_number, Species, Date, Genotype, Latitude, Longitude, Cookie_no, Sophie) %>%
       distinct(Bag_number, Species, Date, .keep_all = TRUE), # Safety deduplication on exact composite key
     by = c("Bag_number", "Species", "Date")
   ) %>%
@@ -180,7 +180,7 @@ longphoto <- photophys %>%
   )
 
 widephoto <- longphoto %>%
-  select(MessyID, uni, Value) %>%
+  dplyr::select(MessyID, uni, Value) %>%
   pivot_wider(
     names_from = uni,
     values_from = Value
@@ -246,7 +246,7 @@ Alls.cor_clean <- as.matrix(Alls.trans)
 # Calculate Pearson correlation matrix across metrics
 descrCor <- cor(Alls.cor_clean)
 
-save(Alls.cor_clean, file = here("Data", "Alls.cor_clean.RData"))
+#save(Alls.cor_clean, file = here("Data", "Alls.cor_clean.RData"))
 
 #alls<-load(here("Data/Alls.cor_clean.RData"))
 ```
