@@ -242,6 +242,23 @@ color_emm
 
 saveRDS(color_emm, "Outputs/plot_color.rds")
 
+# 1. Calculate overall R2 (Predicted vs Actual Color_mean)
+r2_overall <- cor(pred_lines$Color_mean, pred_lines$pred_color, use = "complete.obs")^2
+
+# 2. Calculate per-species R2 values for the facets
+r2_df <- pred_lines %>%
+  filter(!is.na(Color_mean) & !is.na(pred_color)) %>%
+  group_by(Species) %>%
+  summarize(
+    r2 = cor(Color_mean, pred_color)^2,
+    r2_label = sprintf("R² = %.2f", r2)
+  ) %>%
+  mutate(
+    # Inf = Right edge, -Inf = Bottom edge
+    Rel_Temperature = Inf,
+    Color_mean = -Inf
+  )
+
 # 1. Generate predicted regression lines for each sample using lmresults
 pred_lines <- fvfm_and_color %>%
   left_join(lmresults %>% dplyr::select(SampleID, int, slope), by = c("SampleID_clean" = "SampleID")) %>%
@@ -334,14 +351,24 @@ g_slopes_ribbon <- ggplot(pred_lines, aes(x = Rel_Temperature, y = Color_mean, c
     aes(x = Rel_Temperature, y = pred_color, color = Species),
     linewidth = 1.2
   ) +
-  facet_wrap(~ Species, labeller = as_labeller(species_labels)) +
+  # Add per-species R² text annotation inside each facet panel
+  geom_text(
+    data = r2_df,
+    aes(x = Rel_Temperature, y = Color_mean, label = r2_label),
+    hjust = 4,  # Anchor to the right, pad slightly left
+    vjust = -0.5, # Anchor to the bottom, pad slightly up
+    size = 3.5, fontface = "bold",
+    inherit.aes = FALSE, color = "black"
+  ) +
+  facet_wrap(~ Species, ncol=4, labeller = as_labeller(species_labels)) +
   labs(
     x = "Relative Temperature (°C)",
-    y = "Color Mean"
+    y = "Color Mean",
+    #subtitle = sprintf("Overall Model R² = %.2f", r2_overall) # Optional: add overall R² here
   ) +
   scale_color_manual(values = species_colors, limits = species_order) +
   scale_fill_manual(values = species_colors, limits = species_order) +
-  theme_classic(base_size = 12) +
+  theme_classic(base_size = 14.5) +
   theme(
     legend.position = "none",
     strip.text = element_text(face = "bold.italic", size = 11),
@@ -351,4 +378,71 @@ g_slopes_ribbon <- ggplot(pred_lines, aes(x = Rel_Temperature, y = Color_mean, c
 
 g_slopes_ribbon
 
+ggsave(
+  filename = "FigS3.Slopes_ribbon_grid.png",
+  plot = g_slopes_ribbon,
+  width = 3400,          # Pixel width (adjust as needed)
+  height = 1800,         # Pixel height
+  units = "px",
+  dpi = 300              # High resolution for publication
+)
 saveRDS(g_slopes_ribbon, "Outputs/color_slopes_ribbon.rds")
+###########################################################
+#just plotting the samples is used for the supplemental frag tracking:
+library(tidyverse)
+
+# 1. Define target sample list
+target_samples <- c("10_ICRA_1", "10_AGLO_2", "10_AABR_1", "10_AHYA_1")
+
+# 2. Filter dataset containing raw points & predicted color values
+filtered_pred_lines <- fvfm_and_color %>%
+  filter(SampleID_clean %in% target_samples) %>%
+  left_join(lmresults %>% dplyr::select(SampleID, int, slope), by = c("SampleID_clean" = "SampleID")) %>%
+  mutate(
+    pred_color = int + slope * Rel_Temperature,
+    Species = factor(Species, levels = species_order)
+  )
+
+# 3. Extract exact sample-level R² labels directly from lmresults
+r2_target_df <- lmresults %>%
+  filter(SampleID %in% target_samples) %>%
+  mutate(
+    r2_label = sprintf("R² = %.2f", r2),
+    Rel_Temperature = Inf,
+    Color_mean = -Inf,
+    Species = factor(Species, levels = species_order)
+  )
+
+g_4_corals <- ggplot(filtered_pred_lines, aes(x = Rel_Temperature, y = Color_mean, color = Species)) +
+  # 1. Raw data points
+  geom_point(alpha = 0.8, size = 2.5) +
+  
+  # 2. Individual fragment LM regression line
+  geom_line(aes(y = pred_color, group = SampleID_clean), linewidth = 1.2) +
+  
+  # 3. R² annotation in lower-right corner
+  # geom_text(
+  #   data = r2_target_df,
+  #   aes(x = Rel_Temperature, y = Color_mean, label = r2_label),
+  #   hjust = 1.1, vjust = -0.5,
+  #   size = 4, fontface = "bold",
+  #   inherit.aes = FALSE, color = "black"
+  # ) +
+  
+  # Facet by species
+  facet_wrap(~ Species, ncol=1, labeller = as_labeller(species_labels)) +
+  
+  labs(
+    x = "Relative Temperature (°C)",
+    y = "Color Mean"
+  ) +
+  scale_color_manual(values = species_colors, limits = species_order) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold.italic", size = 11),
+    axis.title = element_text(face = "bold", color = "black"),
+    axis.text = element_text(color = "black")
+  )
+
+g_4_corals
