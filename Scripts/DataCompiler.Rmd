@@ -78,7 +78,7 @@ movingAverage <- function(x, n=1, centered=FALSE)
 ```{r load metadata}
 #read in ed50 data (to know which samples were used in cbass) + to join
 ed50<-read.csv(here("Data", "EDsdf-all.csv"))
-color<- read.csv(here("Outputs", "color_slope.csv"))
+color<- read.csv(here("Data", "color_slope.csv"))
 # colony_metadata<-read.csv(here ("Data/TUT_experimental_data.csv"))
 cbass_metadata<-read.csv(here("Data", "full_cbass_dataset.csv"))
 cbass_meta_clean <- cbass_metadata %>%
