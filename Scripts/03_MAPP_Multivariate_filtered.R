@@ -9,6 +9,7 @@ library(viridis)
 library(caret)
 library(pvclust)
 library(patchwork)
+library(factoextra)
 
 source(here("Scripts/00_visualization_prep.R"))
 # =========================================================================
@@ -16,22 +17,6 @@ source(here("Scripts/00_visualization_prep.R"))
 # =========================================================================
 load(here("Outputs", "photophys_preprocessed_data.RData"))
 
-# =================================
-# hclust
-# =================================
-# set.seed(123)
-# fit_cbb <- pvclust(
-#   t(permanova_matrix_filtered),
-#   method.hclust = "ward.D",
-#   method.dist   = "canberra",
-#   nboot         = 10000,
-#   parallel      = TRUE
-# )
-#Save fit object
-#saveRDS(fit_cbb, here("Outputs", "fit_pvclust_90_10000bs.rds"))
-
-#or load
-fit_cbb<-readRDS(here("Outputs", "fit_pvclust_90.rds"))
 # get hclust tree from pvclust fit
 my_hclust <- fit_cbb$hclust
 original_labels <- my_hclust$labels # SampleIDs (e.g., "11_AABR_1")
@@ -104,8 +89,8 @@ annotation_col <- meta_filteredK %>%
   filter(SampleID_clean %in% colnames(heatmap_matrix_scaled)) %>%
   arrange(match(SampleID_clean, colnames(heatmap_matrix_scaled))) %>%
   column_to_rownames("SampleID_clean") %>%
-  dplyr::select(Species, any_of(c("K_3")), ED50) %>%
-  mutate(across(c(Species, any_of(c("K_3"))), as.factor))
+  dplyr::select(Species, any_of(c("K_3")), ED50, Site) %>%
+  mutate(across(c(Species, Site, any_of(c("K_3"))), as.factor))
 
 annotation_col <- annotation_col %>%
   mutate(
@@ -140,6 +125,7 @@ pheatmap(
   annotation_colors = ann_colors,
   annotation_col    = annotation_col,
   annotation_row    = annotation_row,
+  Site = site_colors,
   show_colnames     = FALSE,         
   show_rownames     = FALSE,         
   cluster_rows      = TRUE, # false= alphabetical Family sorting
@@ -151,6 +137,15 @@ pheatmap(
 )
 
 dev.off()
+
+# Plot only the column/sample dendrogram colored by clusters or site
+fviz_dend(
+  my_hclust, 
+  k = 3, # number of groups
+  rect = TRUE, 
+  show_labels = FALSE,
+  main = "Sample Cluster Dendrogram"
+)
 
 ##############################################################################
 #### MULTIVARIATE ANALYSIS####################################################
@@ -516,7 +511,7 @@ print(kplot)
 combined_plot <- (spp + kplot) +
   plot_layout(ncol = 2, guides = "collect") +
   plot_annotation(
-    title = paste0("Filtered (r = ", cor_cutoff, ", nMDS Stress = ", round(nmds_filtered$stress, 3), ")"),
+    title = paste0("Filtered ( nMDS Stress = ", round(nmds_filtered$stress, 3), ")"),
     tag_levels = 'A'
   ) &
   theme(legend.position = "right")

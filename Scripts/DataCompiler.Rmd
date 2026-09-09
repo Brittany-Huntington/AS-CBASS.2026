@@ -320,12 +320,26 @@ meta_filtered <- ed_aligned %>%
 # Verify row order is identical (CRITICAL for vegan functions)
 stopifnot(identical(rownames(permanova_matrix_filtered), meta_filtered$SampleID_clean))
 
-# save(
-#   list = c(ls(), "permanova_matrix_filtered"), 
-#   file = here("Outputs", "photophys_preprocessed_data.RData")
-# )
+```
+
+```{r}
+# =================================
+# hclust
+# =================================
+set.seed(123)
+fit_cbb <- pvclust(
+  t(permanova_matrix_filtered),
+  method.hclust = "ward.D",
+  method.dist   = "canberra",
+  nboot         = 10000,
+  parallel      = TRUE
+)
+
+#saveRDS(fit_cbb, here("Outputs", "fit_pvclust_90_10000bs.rds"))
+```
 
 
+```{r}
 #save for downstream analyses
 save(
   widephoto,
@@ -334,6 +348,8 @@ save(
   #permanova_matrix,
   permanova_matrix_filtered,
   metric_families,
+  meta_filtered,
+  fit_cbb,
   file = here("Outputs", "photophys_preprocessed_data.RData")
 )
 ```
