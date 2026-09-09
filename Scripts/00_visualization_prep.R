@@ -1,6 +1,6 @@
 library(ggplot2)
 
-# --- Shapes & Species Palettes ---
+
 custom_shapes  <- c(23, 22, 15, 16, 17, 18, 21, 24)
 all_sites <- c("1", "3", "4", "5", "7", "9", "10", "11")
 
@@ -67,10 +67,22 @@ metric_colors <- c(
   "Other Metric"                      = "#7F7F7F"  
 )
 
+site_colors <- c(
+  "1" = "#E41A1C",
+  "3" = "#FF7F00", 
+  "4" = "#FFD700", 
+  "5" = "#4DAF4A", 
+  "7" = "green",   
+  "9" = "#377EB8", 
+  "10" = "#4B0082" ,
+  "11" = "#984EA3"
+)
+
 ann_colors <- list(
   Family  = metric_colors,
   Species = species_colors,
-  K_3     = cluster_colors
+  K_3     = cluster_colors,
+  Site = site_colors
 )
 
 # --- Shared Publication Theme ---
