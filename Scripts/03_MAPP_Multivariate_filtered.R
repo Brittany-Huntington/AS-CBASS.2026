@@ -52,19 +52,19 @@ save(
 # transpose so metrics are rows and samples are columns
 heatmap_matrix <- t(permanova_matrix_filtered)
 
-# align columns to match leaf order of the dendrogram
-heatmap_matrix <- heatmap_matrix[, match(original_labels, colnames(heatmap_matrix))]
-
-# Z-score scale across metrics (rows) and cap outliers [-3, 3]
-heatmap_matrix_scaled <- t(scale(t(heatmap_matrix)))
-heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
-heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
-
-# drop raw baseline metrics (Fm/Fo) if present (triple check)
-keep_metrics <- !rownames(heatmap_matrix_scaled) %in% c("Fm", "Fo", "fm", "fo", "F0", "FM")
-heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, , drop = FALSE]
-
-# =========================================================================
+# # align columns to match leaf order of the dendrogram
+# heatmap_matrix <- heatmap_matrix[, match(original_labels, colnames(heatmap_matrix))]
+# 
+# # Z-score scale across metrics (rows) and cap outliers [-3, 3]
+# heatmap_matrix_scaled <- t(scale(t(heatmap_matrix)))
+# heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
+# heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
+# 
+# # drop raw baseline metrics (Fm/Fo) if present (triple check)
+# keep_metrics <- !rownames(heatmap_matrix_scaled) %in% c("Fm", "Fo", "fm", "fo", "F0", "FM")
+# heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, , drop = FALSE]
+# 
+# # =========================================================================
 # 3. PREPARE ROW ANNOTATIONS (METRIC FAMILIES)
 # =========================================================================
 
