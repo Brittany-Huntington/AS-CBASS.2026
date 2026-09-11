@@ -358,7 +358,7 @@ ED50_emm_df <- as.data.frame(species_letters) %>%
 # Publication-Ready ED50 Emmeans Plot (g3)
 ed50_emm <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
   geom_jitter(
-    aes(color = Species, shape = Site), # Fixed: mapped to factor column Site
+    aes(color = Species),# shape = Site), # Fixed: mapped to factor column Site
     width = 0.12, 
     alpha = 0.5, 
     size = 3, 
@@ -390,17 +390,21 @@ ed50_emm <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
   ) +
   labs(
     x = "Species",
-    y = expression("Emmeans ED"[50] ~ " (°C)"),
+    y = expression("ED50" ~ " (°C)"),
     color = "Species",
-    shape = "Site"
+    #shape = "Site"
   ) +
-  scale_color_manual(values = species_colors, limits = species_order, labels = species_labels) +
-  scale_shape_manual(values = custom_shapes, limits = all_sites, drop = FALSE) + # Fixed: explicit limits & drop = FALSE
+  #scale_color_manual(values = species_colors, limits = species_order, labels = species_labels) +
+  #scale_shape_manual(values = custom_shapes, limits = all_sites, drop = FALSE) + # Fixed: explicit limits & drop = FALSE
+  scale_color_manual(
+    values = species_colors, 
+    limits = species_order, 
+    labels = species_labels)+
   theme_classic(base_size = 12, base_family = "sans") +
   theme(
     legend.position = "right",
     legend.title = element_text(face = "bold", size = 11),
-    legend.text = element_text(size = 10),
+    legend.text = element_text(face = "italic", size = 10),
     axis.title = element_text(face = "bold", size = 13, color = "black"),
     axis.text.y = element_text(size = 11, color = "black"),
     axis.text.x = element_text(size = 11, color = "black", angle = 30, hjust = 1, face = "italic"),
@@ -411,7 +415,9 @@ ed50_emm <- ggplot(ED50_df, aes(x = Species, y = ED_value)) +
   guides(
     color = guide_legend(override.aes = list(alpha = 1, size = 3)),
     shape = guide_legend(override.aes = list(alpha = 1, size = 3))
-  )
+  )+
+  scale_x_discrete(limits = species_order, labels = species_labels) 
+
 
 ed50_emm
 saveRDS(ed50_emm, "Outputs/plot_ed50.rds")

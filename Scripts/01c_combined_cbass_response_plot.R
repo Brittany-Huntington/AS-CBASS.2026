@@ -43,6 +43,7 @@ combined_fig <- (ed50_emm / color_emm) +
 print(combined_fig)
 
 
+
 # ------------------------------------------------------------------------------
 # Export Multi-Panel Figure
 # ------------------------------------------------------------------------------
@@ -64,3 +65,45 @@ ggsave(
   units    = "in",
   dpi      = 600
 )
+
+#horizontal plot
+# 1. Apply discrete scales individually to ensure both plots render identical species axes & legends
+library(ggplot2)
+library(patchwork)
+
+# 1. Prepare Base Plots
+p1 <- ed50_emm +
+  theme_coral_pub() +
+  scale_x_discrete(limits = species_order, labels = species_labels) +
+  #scale_color_manual(name = species_title, values = species_colors, limits = species_order, labels = species_labels) +
+  #scale_shape_manual(name = site_title, values = site_shapes)
+  aes(shape = NULL, species = NULL)
+
+p2 <- color_emm +
+  theme_coral_pub() +
+  scale_x_discrete(limits = species_order, labels = species_labels) +
+ # scale_color_manual(name = species_title, values = species_colors, limits = species_order, labels = species_labels) +
+ # scale_shape_manual(name = site_title, values = site_shapes)
+  aes(shape = NULL, species = NULL)
+
+# 2. Assemble and Enforce Formatting Globally via Patchwork '&'
+combined_fig <- (p1 + p2) +
+  plot_layout(
+    guides = "collect",
+    axis_titles = "collect"
+  ) +
+  plot_annotation(tag_levels = "A") &
+  # Global guides override: Drop species legend, collapse site to 1 row
+ # guides(
+    #color = "none",
+    #shape = guide_legend(title = site_title, nrow = 1)
+  #) &
+  # Global theme override: Force horizontal top legend & straight italic X-axis text
+  theme(
+    # legend.position = "top",
+    # legend.direction = "horizontal",
+    # legend.box = "horizontal",
+    axis.text.x = element_text(angle = 30, hjust = 1, vjust=1, face = "italic", color = "black")
+  )
+
+print(combined_fig)

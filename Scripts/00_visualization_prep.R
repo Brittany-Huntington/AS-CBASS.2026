@@ -1,5 +1,6 @@
 library(ggplot2)
-
+site_title    <- "Site"
+species_title <- "Species"
 
 custom_shapes  <- c(23, 22, 15, 16, 17, 18, 21, 24)
 all_sites <- c("1", "3", "4", "5", "7", "9", "10", "11")

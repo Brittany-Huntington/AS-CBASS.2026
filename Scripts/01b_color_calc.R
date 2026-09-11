@@ -183,11 +183,11 @@ g_color
 # Emmeans Plot for Color Slope
 color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
   geom_jitter(
-    aes(color = Species, shape = Site), # Fixed: mapped to factor column Site
-    width = 0.08, 
-    alpha = 0.45, 
-    size = 2.5, 
-    show.legend = TRUE 
+    aes(color = Species), #shape = Site), # Fixed: mapped to factor column Site
+    width = 0.08,
+    alpha = 0.45,
+    size = 2.5,
+    show.legend = TRUE
   ) +
   geom_point(
     data = color_emm_df,
@@ -214,19 +214,19 @@ color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
     inherit.aes = FALSE
   ) +
   labs(
-    x = "Species",
-    y = expression("Emmeans Color Slope (" * Delta * "Color / °C)"),
+    #x = "Species",
+    y = expression("Color Slope (" * Delta * "Color / °C)"),
     color = "Species",
-    shape = "Site"
+    #shape = "Site"
   ) +
   scale_color_manual(values = species_colors, limits = species_order, labels = species_labels) +
-  scale_shape_manual(values = custom_shapes, limits = all_sites, drop = FALSE) + # Fixed: explicit limits & drop = FALSE
+  #scale_shape_manual(values = custom_shapes, limits = all_sites, drop = FALSE) + # Fixed: explicit limits & drop = FALSE
   theme_classic(base_size = 12, base_family = "sans") +
   theme(
     legend.position = "right",
     legend.title = element_text(face = "bold", size = 11),
-    legend.text = element_text(size = 10),
-    axis.title = element_text(face = "bold", size = 13, color = "black"),
+    legend.text = element_text(face = "italic", size = 10),
+    #axis.title = element_text(face = "bold", size = 13, color = "black"),
     axis.text.y = element_text(size = 11, color = "black"),
     axis.text.x = element_text(size = 11, color = "black", angle = 30, hjust = 1, face = "italic"),
     axis.line = element_line(linewidth = 0.6, color = "black"),
@@ -236,7 +236,8 @@ color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
   guides(
     color = guide_legend(override.aes = list(alpha = 1, size = 3)),
     shape = guide_legend(override.aes = list(alpha = 1, size = 3))
-  )
+  )+
+  scale_x_discrete(limits = species_order, labels = species_labels) 
 
 color_emm
 
