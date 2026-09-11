@@ -12,140 +12,8 @@ library(patchwork)
 library(factoextra)
 
 source(here("Scripts/00_visualization_prep.R"))
-# =========================================================================
-# 1. Read in and format raw data
-# =========================================================================
 load(here("Outputs", "photophys_preprocessed_data.RData"))
 
-# get hclust tree from pvclust fit
-my_hclust <- fit_cbb$hclust
-original_labels <- my_hclust$labels # SampleIDs (e.g., "11_AABR_1")
-
-# extract cluster across K = 2 through K = 15
-k_matrix <- cutree(my_hclust, k = 2:15)
-
-# convert into a clean lookup dataframe with "K_2", "K_3" columns
-k_lookup <- as.data.frame(k_matrix) %>%
-  rename_with(~ paste0("K_", 2:15)) %>%
-  rownames_to_column("SampleID_clean") %>%
-  mutate(across(starts_with("K_"), ~ factor(paste0("Cluster_", .x))))
-
-# join all K_2 through K_15 cluster columns into meta_filtered
-meta_filteredK <- meta_filtered %>%
-  left_join(k_lookup, by = "SampleID_clean")
-
-# verify row alignment
-stopifnot(identical(rownames(permanova_matrix_filtered), meta_filteredK$SampleID_clean))
-
-cat("\n--- K_3 CLUSTER DISTRIBUTION ACROSS SPECIES ---\n")
-print(table(meta_filteredK$K_3, meta_filteredK$Species))
-#save in rds
-save(
-  list = c(ls(), "meta_filteredK"), 
-  file = here("Outputs", "photophys_preprocessed_data.RData")
-)
-#save in output
-# saveRDS(meta_filteredK, here("Outputs", "master_cluster_metadata_K2_K15.rds"))
-# write.csv(meta_filteredK, here("Outputs", "master_cluster_metadata_K2_K15.csv"), 
-#   row.names = FALSE)
-
-# transpose so metrics are rows and samples are columns
-heatmap_matrix <- t(permanova_matrix_filtered)
-
-# # align columns to match leaf order of the dendrogram
-# heatmap_matrix <- heatmap_matrix[, match(original_labels, colnames(heatmap_matrix))]
-# 
-# # Z-score scale across metrics (rows) and cap outliers [-3, 3]
-# heatmap_matrix_scaled <- t(scale(t(heatmap_matrix)))
-# heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
-# heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
-# 
-# # drop raw baseline metrics (Fm/Fo) if present (triple check)
-# keep_metrics <- !rownames(heatmap_matrix_scaled) %in% c("Fm", "Fo", "fm", "fo", "F0", "FM")
-# heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, , drop = FALSE]
-# 
-# # =========================================================================
-# 3. PREPARE ROW ANNOTATIONS (METRIC FAMILIES)
-# =========================================================================
-
-# Filter metric_families table to match active matrix rows
-annotation_row <- metric_families %>%
-  filter(Metric %in% rownames(heatmap_matrix_scaled)) %>%
-  dplyr::select(Metric, Family) %>%
-  column_to_rownames("Metric")
-
-# Sort Matrix and Row Annotations alphabetically by Family
-sorted_order <- order(annotation_row$Family)
-heatmap_matrix_scaled <- heatmap_matrix_scaled[sorted_order, ]
-annotation_row         <- annotation_row[sorted_order, , drop = FALSE]
-
-
-# =========================================================================
-# 4. PREPARE COLUMN ANNOTATIONS
-# =========================================================================
-
-# Match ed_aligned metadata directly to tree labels
-annotation_col <- meta_filteredK %>%
-  filter(SampleID_clean %in% colnames(heatmap_matrix_scaled)) %>%
-  arrange(match(SampleID_clean, colnames(heatmap_matrix_scaled))) %>%
-  column_to_rownames("SampleID_clean") %>%
-  dplyr::select(Species, any_of(c("K_3")), ED50, Site) %>%
-  mutate(across(c(Species, Site, any_of(c("K_3"))), as.factor))
-
-annotation_col <- annotation_col %>%
-  mutate(
-    K_3 = roman_map[as.character(K_3)],
-    K_3 = factor(K_3, levels = target_levels)
-  )
-
-# Ensure ann_colors matches target_levels ("Cluster I", "Cluster II", "Cluster III")
-ann_colors$K_3 <- c(
-  "Cluster I"   = "violet",
-  "Cluster II"  = "orange",
-  "Cluster III" = "cyan"
-)
-
-# =========================================================================
-# 5. HEATMAP
-# =========================================================================
-
-my_palette <- colorRampPalette(c("darkblue", "white", "darkred"))(100)
-my_breaks  <- seq(-3, 3, length.out = 101)
-
-jpeg(
-  file   = here("Plots", "Sorted_Physiological_Heatmap_Filtered1.jpg"), 
-  width  = 12, 
-  height = 10, 
-  units  = "in", 
-  res    = 300
-)
-
-pheatmap(
-  heatmap_matrix_scaled,
-  annotation_colors = ann_colors,
-  annotation_col    = annotation_col,
-  annotation_row    = annotation_row,
-  Site = site_colors,
-  show_colnames     = FALSE,         
-  show_rownames     = FALSE,         
-  cluster_rows      = TRUE, # false= alphabetical Family sorting
-  cluster_cols      = my_hclust, # Direct pvclust tree      
-  color             = my_palette,            
-  breaks            = my_breaks,            
-  main              = "Collinearity-Filtered MAPP Fluorescence Metrics vs. Clusters",
-  margins           = c(5, 20)       
-)
-
-dev.off()
-
-# Plot only the column/sample dendrogram colored by clusters or site
-fviz_dend(
-  my_hclust, 
-  k = 3, # number of groups
-  rect = TRUE, 
-  show_labels = FALSE,
-  main = "Sample Cluster Dendrogram"
-)
 
 ##############################################################################
 #### MULTIVARIATE ANALYSIS####################################################
@@ -202,7 +70,7 @@ permanova_spp_site <- adonis2(
   data = meta_filtered,
   method = "euclidean",
   by = "margin", #since spp are unbalanced
-  strata       = meta_filtered$Site, #permutations constrained within sites
+  #strata       = meta_filtered$Site, #permutations constrained within sites
   permutations = 999
 )
 
@@ -382,13 +250,13 @@ spp_centroids <- nmds_scores %>%
 spp <- ggplot() +
   geom_point(
     data = nmds_scores, 
-    aes(x = NMDS1, y = NMDS2, color = Species, shape = factor(Site)), 
+    aes(x = NMDS1, y = NMDS2, color = Species), #shape = factor(Site)), 
     size = 2.8, alpha = 0.75
   ) + 
   stat_ellipse(
     data = nmds_scores, 
     aes(x = NMDS1, y = NMDS2, color = Species, fill = Species), 
-    geom = "polygon", alpha = 0.1, level = 0.95
+    geom = "polygon", alpha = 0.1, level = 0.90
   ) +
   #centroid :
   geom_point(
@@ -400,25 +268,25 @@ spp <- ggplot() +
     stroke = 4,    
     show.legend = FALSE
   ) +
-  scale_shape_manual(values = custom_shapes, name = "Site") +
+  #scale_shape_manual(values = custom_shapes, name = "Site") +
   scale_color_manual(values = species_colors, name = "Species") +
   scale_fill_manual(values = species_colors, name = "Species") +
   new_scale_color() +
-  geom_segment(
-    data = top_vectors_clean, 
-    aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Metric_Category),
-    arrow = arrow(length = unit(0.20, "cm")), linewidth = 0.85
-  ) +
-  geom_text(
-    data = top_vectors_clean,
-    aes(x = NMDS1_scaled * 1.10, y = NMDS2_scaled * 1.10, label = Metric),
-    size = 3
-  ) +
+  # geom_segment(
+  #   data = top_vectors_clean, 
+  #   aes(x = 0, y = 0, xend = NMDS1_scaled, yend = NMDS2_scaled, color = Metric_Category),
+  #   arrow = arrow(length = unit(0.20, "cm")), linewidth = 0.85
+  # ) +
+  # geom_text(
+  #   data = top_vectors_clean,
+  #   aes(x = NMDS1_scaled * 1.10, y = NMDS2_scaled * 1.10, label = Metric),
+  #   size = 3
+  # ) +
   scale_color_manual(values = metric_colors, name = "Trait Family") +
   coord_cartesian(clip = "off") +
   theme_bw() +
   theme(plot.margin = unit(c(15, 25, 15, 25), "pt"))+
-  labs(title = "Species Ellipses", x = "nMDS Dimension 1", y = "nMDS Dimension 2")
+  labs( x = "nMDS Dimension 1", y = "nMDS Dimension 2")
 
 spp
 # =========================================================================

@@ -335,7 +335,31 @@ fit_cbb <- pvclust(
   parallel      = TRUE
 )
 
-#saveRDS(fit_cbb, here("Outputs", "fit_pvclust_90_10000bs.rds"))
+# get hclust tree from pvclust fit
+my_hclust <- fit_cbb$hclust
+original_labels <- my_hclust$labels # SampleIDs (e.g., "11_AABR_1")
+
+# extract cluster across K = 2 through K = 15
+k_matrix <- cutree(my_hclust, k = 2:15)
+
+# convert into a clean lookup dataframe with "K_2", "K_3" columns
+k_lookup <- as.data.frame(k_matrix) %>%
+  rename_with(~ paste0("K_", 2:15)) %>%
+  rownames_to_column("SampleID_clean") %>%
+  mutate(across(starts_with("K_"), ~ factor(paste0("Cluster_", .x))))
+
+# join all K_2 through K_15 cluster columns into meta_filtered
+meta_filteredK <- meta_filtered %>%
+  left_join(k_lookup, by = "SampleID_clean")
+
+# verify row alignment
+stopifnot(identical(rownames(permanova_matrix_filtered), meta_filteredK$SampleID_clean))
+
+cat("\n--- K_3 CLUSTER DISTRIBUTION ACROSS SPECIES ---\n")
+print(table(meta_filteredK$K_3, meta_filteredK$Species))
+
+print(table(meta_filteredK$K_3, meta_filteredK$Species, meta_filteredK$Site))
+
 ```
 
 
@@ -349,6 +373,7 @@ save(
   permanova_matrix_filtered,
   metric_families,
   meta_filtered,
+  meta_filteredK,
   fit_cbb,
   file = here("Outputs", "photophys_preprocessed_data.RData")
 )
